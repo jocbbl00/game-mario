@@ -197,7 +197,7 @@ const state = {
   sessionId     : null,
   sessionToken  : null,
   levelSeed     : null,
-  playerName    : localStorage.getItem("marioName") || "",
+  playerName    : "",
   popups        : [],   // floating score text
 };
 
@@ -207,6 +207,7 @@ let camX    = 0;
 let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
+let nameAskedThisPageLoad = false;
 
 function createPlayer() {
   return {
@@ -260,7 +261,7 @@ function setupTouchControls() {
   bindBtn(btnLeft,  "ArrowLeft");
   bindBtn(btnRight, "ArrowRight");
   bindBtn(btnJump,  "Space");
-  if (btnFire) bindBtn(btnFire, "KeyX");
+  if (btnFire) bindBtn(btnFire, "KeyA");
 }
 
 // Tap canvas to start / restart on touch devices
@@ -359,8 +360,8 @@ function update(dt) {
 
   coinSpin += dt * 4;
 
-  // --- Player input ---
-  if (keys["ArrowLeft"] || keys["KeyA"])  { player.vx = -PLAYER_SPEED; player.facingRight = false; }
+  // --- Player input (KeyA is fireball; use ArrowLeft / Q for left on PC) ---
+  if (keys["ArrowLeft"] || keys["KeyQ"])    { player.vx = -PLAYER_SPEED; player.facingRight = false; }
   else if (keys["ArrowRight"] || keys["KeyD"]) { player.vx = PLAYER_SPEED;  player.facingRight = true;  }
   else player.vx *= 0.75;
 
@@ -370,7 +371,7 @@ function update(dt) {
   }
 
   if (player.fireCooldown > 0) player.fireCooldown--;
-  if (player.firePower && player.fireCooldown <= 0 && keys["KeyX"]) {
+  if (player.firePower && player.fireCooldown <= 0 && keys["KeyA"]) {
     player.fireCooldown = FIRE_COOLDOWN_FRAMES;
     const dir = player.facingRight ? 1 : -1;
     fireballs.push({
@@ -936,7 +937,7 @@ function drawStart() {
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
   ctx.fillText("Reach the flag  +1000  Time bonus up to +2000", CANVAS_W / 2, 305);
-  ctx.fillText("? blocks: bump from below  mushroom  X = fire", CANVAS_W / 2, 335);
+  ctx.fillText("? blocks: bump from below  mushroom  A = fire", CANVAS_W / 2, 335);
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
     ctx.fillStyle = "#ffd700";
@@ -1121,11 +1122,11 @@ function renderLeaderboard(items) {
 // GAME FLOW
 // ============================================================
 async function startGame() {
-  // Ask for name once at game start — not mid-submission
-  if (!state.playerName) {
+  // Ask for name once per page load (refresh asks again — no localStorage)
+  if (!nameAskedThisPageLoad) {
     const n = window.prompt("Enter your name for the leaderboard (max 12 chars):", "") || "Guest";
     state.playerName = n.trim().slice(0, 12) || "Guest";
-    localStorage.setItem("marioName", state.playerName);
+    nameAskedThisPageLoad = true;
   }
 
   state.phase = "loading";

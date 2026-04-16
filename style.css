@@ -105,6 +105,11 @@ canvas {
   z-index: 200;
 }
 
+/* Fireball: only on touch-primary devices (PC uses A key; no on-screen button) */
+#touch-fire {
+  display: none !important;
+}
+
 .touch-zone-left {
   position: absolute;
   left: 16px;
@@ -217,6 +222,10 @@ canvas {
 @media (hover: none) and (pointer: coarse) {
   #touch-controls {
     display: block;
+  }
+
+  #touch-fire {
+    display: flex !important;
   }
 
   /* Extra bottom padding so game content isn't behind the touch buttons */
