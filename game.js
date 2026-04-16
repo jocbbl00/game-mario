@@ -132,10 +132,17 @@ function generateLevel(seed) {
   }
 
   // --- GROUND ENEMIES ---
+  // Build sorted list of solid ground tile x positions in the valid spawn range
+  // so enemies never spawn over a gap.
+  const spawnableTiles = [...out.groundSet]
+    .filter(x => x >= 600 && x <= WORLD_W - TILE * 5)
+    .sort((a, b) => a - b);
+
   const nGround = 10 + Math.floor(rng() * 8);         // RNG: count
   for (let i = 0; i < nGround; i++) {
-    const ex      = 600 + Math.floor(rng() * (WORLD_W - 900)); // RNG: x
-    const dirRoll = rng();                                       // RNG: direction
+    const tileIdx = Math.floor(rng() * spawnableTiles.length); // RNG: x (same 1 call)
+    const ex      = spawnableTiles[tileIdx] ?? 600;
+    const dirRoll = rng();                                      // RNG: direction
     out.enemies.push({
       x: ex, y: GROUND_Y - TILE + 4,
       w: TILE - 6, h: TILE - 6,
@@ -468,6 +475,27 @@ function drawBackground() {
   }
 }
 
+function drawWater() {
+  for (let x = 0; x < WORLD_W; x += TILE) {
+    if (level.groundSet.has(x)) continue;
+    const sx = x - camX;
+    if (sx + TILE < 0 || sx > CANVAS_W) continue;
+
+    // Deep water fill
+    ctx.fillStyle = "#0d47a1";
+    ctx.fillRect(sx, GROUND_Y, TILE, CANVAS_H - GROUND_Y);
+
+    // Animated surface wave
+    const wave = Math.sin(coinSpin * 2 + x * 0.08) * 3;
+    ctx.fillStyle = "#1565c0";
+    ctx.fillRect(sx, GROUND_Y + wave, TILE, 10);
+
+    // Surface highlight
+    ctx.fillStyle = "rgba(100,181,246,0.35)";
+    ctx.fillRect(sx + 2, GROUND_Y + wave, TILE - 4, 3);
+  }
+}
+
 function drawPlatform(p) {
   const sx = p.x - camX;
   if (sx + p.w < 0 || sx > CANVAS_W) return;
@@ -712,6 +740,7 @@ function render() {
 
   drawBackground();
   if (level) {
+    drawWater();
     for (const p of level.platforms) drawPlatform(p);
     for (const p of level.pipes)     drawPipe(p);
     for (const c of level.coins)     drawCoin(c);
