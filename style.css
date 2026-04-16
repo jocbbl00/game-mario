@@ -119,6 +119,10 @@ canvas {
   right: 20px;
   bottom: 20px;
   pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
 .touch-btn {
@@ -153,6 +157,20 @@ canvas {
 .touch-jump-btn:active,
 .touch-jump-btn.pressed {
   background: rgba(230, 57, 70, 0.5);
+}
+
+.touch-fire-btn {
+  width: 56px;
+  height: 56px;
+  font-size: 18px;
+  background: rgba(255, 111, 0, 0.25);
+  border-color: rgba(255, 152, 0, 0.65);
+  color: #ff9800;
+}
+
+.touch-fire-btn:active,
+.touch-fire-btn.pressed {
+  background: rgba(255, 111, 0, 0.45);
 }
 
 /* ── Mobile layout ── */

@@ -13,6 +13,10 @@ const PLAYER_H  = 36;
 const PLAYER_SPEED = 4.5;
 const WORLD_W   = 8000;
 const GROUND_Y  = CANVAS_H - TILE;   // y where ground platforms start
+const MUSHROOM_W = 24;
+const MUSHROOM_H = 24;
+const FIREBALL_SPEED = 10;
+const FIRE_COOLDOWN_FRAMES = 21; // ~0.35s at 60fps
 
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
@@ -64,6 +68,8 @@ function generateLevel(seed) {
     coins     : [],
     enemies   : [],
     pipes     : [],
+    questionBlocks: [],
+    mushrooms : [],
     flagX     : WORLD_W - 320,
     coinCount : 0,
     enemyCount: 0,
@@ -162,6 +168,17 @@ function generateLevel(seed) {
     out.pipes.push({ x: pipex, y: GROUND_Y - pipeh, w: TILE * 2, h: pipeh + TILE * 3 });
   }
 
+  // --- QUESTION BLOCKS (must consume RNG in same order on server) ---
+  const nQ = 12 + Math.floor(rng() * 8);
+  for (let i = 0; i < nQ; i++) {
+    const qx = 400 + Math.floor(rng() * (WORLD_W - 800));
+    const qy = GROUND_Y - 60 - Math.floor(rng() * 100);
+    out.questionBlocks.push({
+      x: qx, y: qy, w: TILE, h: TILE,
+      emptied: false, bumpTimer: 0,
+    });
+  }
+
   return out;
 }
 
@@ -189,6 +206,7 @@ let player  = null;
 let camX    = 0;
 let coinSpin = 0;
 let lastTs  = 0;
+let fireballs = [];
 
 function createPlayer() {
   return {
@@ -202,6 +220,8 @@ function createPlayer() {
     walkFrame: 0,
     walkTimer: 0,
     maxX: 80,
+    firePower: false,
+    fireCooldown: 0,
   };
 }
 
@@ -215,7 +235,7 @@ window.addEventListener("keydown", e => {
   keys[e.code] = true;
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
   if (state.phase === "start" && (e.code === "Space" || e.code === "Enter")) startGame();
-  if ((state.phase === "done" || state.phase === "gameover") && e.code === "Enter") resetToStart();
+  if ((state.phase === "done" || state.phase === "gameover") && (e.code === "Enter" || e.code === "Space")) resetToStart();
 });
 window.addEventListener("keyup", e => { keys[e.code] = false; });
 
@@ -224,6 +244,7 @@ function setupTouchControls() {
   const btnLeft  = document.getElementById("touch-left");
   const btnRight = document.getElementById("touch-right");
   const btnJump  = document.getElementById("touch-jump");
+  const btnFire  = document.getElementById("touch-fire");
 
   function bindBtn(el, key) {
     el.addEventListener("touchstart", e => {
@@ -239,6 +260,7 @@ function setupTouchControls() {
   bindBtn(btnLeft,  "ArrowLeft");
   bindBtn(btnRight, "ArrowRight");
   bindBtn(btnJump,  "Space");
+  if (btnFire) bindBtn(btnFire, "KeyX");
 }
 
 // Tap canvas to start / restart on touch devices
@@ -272,6 +294,56 @@ function resolveVsBoxes(boxes) {
   }
 }
 
+function resolveEntityVsBoxes(ent, boxes) {
+  for (const b of boxes) {
+    if (!overlap(ent.x, ent.y, ent.w, ent.h, b.x, b.y, b.w, b.h)) continue;
+    const oL = (ent.x + ent.w) - b.x;
+    const oR = (b.x + b.w) - ent.x;
+    const oT = (ent.y + ent.h) - b.y;
+    const oB = (b.y + b.h) - ent.y;
+    const min = Math.min(oL, oR, oT, oB);
+    if      (min === oT && ent.vy >= 0) { ent.y = b.y - ent.h; ent.vy = 0; ent.onGround = true; }
+    else if (min === oB && ent.vy < 0)  { ent.y = b.y + b.h;   ent.vy = 0; }
+    else if (min === oL)                { ent.x = b.x - ent.w; ent.vx = -Math.abs(ent.vx); }
+    else if (min === oR)                { ent.x = b.x + b.w;   ent.vx = Math.abs(ent.vx); }
+  }
+}
+
+function resolveQuestionBlocks() {
+  for (const b of level.questionBlocks) {
+    if (!overlap(player.x, player.y, player.w, player.h, b.x, b.y, b.w, b.h)) continue;
+    const oL = (player.x + player.w) - b.x;
+    const oR = (b.x + b.w) - player.x;
+    const oT = (player.y + player.h) - b.y;
+    const oB = (b.y + b.h) - player.y;
+    const min = Math.min(oL, oR, oT, oB);
+    if      (min === oT && player.vy >= 0) { player.y = b.y - player.h; player.vy = 0; player.onGround = true; }
+    else if (min === oB && player.vy < 0)  {
+      player.y = b.y + b.h; player.vy = 0;
+      if (!b.emptied) {
+        b.emptied = true;
+        b.bumpTimer = 14;
+        spawnMushroom(b);
+      }
+    }
+    else if (min === oL) { player.x = b.x - player.w; player.vx = 0; }
+    else if (min === oR) { player.x = b.x + b.w;      player.vx = 0; }
+  }
+}
+
+function spawnMushroom(block) {
+  level.mushrooms.push({
+    x: block.x + block.w / 2 - MUSHROOM_W / 2,
+    y: block.y + block.h / 2 - MUSHROOM_H / 2,
+    vx: 2.2,
+    vy: 0,
+    w: MUSHROOM_W,
+    h: MUSHROOM_H,
+    emerge: 0,
+    onGround: false,
+  });
+}
+
 // ============================================================
 // SCORE POPUP
 // ============================================================
@@ -297,6 +369,19 @@ function update(dt) {
     player.onGround = false;
   }
 
+  if (player.fireCooldown > 0) player.fireCooldown--;
+  if (player.firePower && player.fireCooldown <= 0 && keys["KeyX"]) {
+    player.fireCooldown = FIRE_COOLDOWN_FRAMES;
+    const dir = player.facingRight ? 1 : -1;
+    fireballs.push({
+      x: player.facingRight ? player.x + player.w - 4 : player.x - 6,
+      y: player.y + 14,
+      vx: dir * FIREBALL_SPEED,
+      vy: 0,
+      life: 96,
+    });
+  }
+
   // --- Physics ---
   player.vy += GRAVITY;
   if (player.vy >  18) player.vy =  18;
@@ -308,10 +393,14 @@ function update(dt) {
   // --- Fall death (must ignore i-frames or we return early forever and never decrement invincible) ---
   if (player.y > CANVAS_H + 80) { damagePlayer(true); return; }
 
-  // --- Platform + pipe collision ---
+  // --- Platform + pipe + ? blocks ---
   player.onGround = false;
   resolveVsBoxes(level.platforms);
   resolveVsBoxes(level.pipes);
+  resolveQuestionBlocks();
+  for (const qb of level.questionBlocks) {
+    if (qb.bumpTimer > 0) qb.bumpTimer--;
+  }
 
   // --- Track furthest-right for respawn ---
   if (player.x > player.maxX) player.maxX = player.x;
@@ -327,6 +416,69 @@ function update(dt) {
     player.walkTimer = 0;
   }
   if (!moving) player.walkFrame = 0;
+
+  // --- Mushrooms (power-up) ---
+  const solidForMush = [...level.platforms, ...level.questionBlocks, ...level.pipes];
+  for (let i = level.mushrooms.length - 1; i >= 0; i--) {
+    const m = level.mushrooms[i];
+    if (m.emerge < 36) {
+      m.y -= 2;
+      m.emerge++;
+      continue;
+    }
+    m.vy += GRAVITY;
+    m.x += m.vx;
+    m.y += m.vy;
+    m.onGround = false;
+    resolveEntityVsBoxes(m, solidForMush);
+    if (m.y > CANVAS_H + 80) {
+      level.mushrooms.splice(i, 1);
+      continue;
+    }
+    if (overlap(player.x, player.y, player.w, player.h, m.x, m.y, m.w, m.h)) {
+      if (!player.firePower) {
+        player.firePower = true;
+        addPopup(m.x - camX + m.w / 2, m.y - 8, "FIRE!");
+      }
+      level.mushrooms.splice(i, 1);
+    }
+  }
+
+  // --- Fireballs ---
+  for (let i = fireballs.length - 1; i >= 0; i--) {
+    const f = fireballs[i];
+    f.x += f.vx;
+    f.life--;
+    if (f.life <= 0) {
+      fireballs.splice(i, 1);
+      continue;
+    }
+    let wall = false;
+    for (const b of solidForMush) {
+      if (overlap(f.x, f.y, 8, 8, b.x, b.y, b.w, b.h)) {
+        wall = true;
+        break;
+      }
+    }
+    if (wall || f.x < -20 || f.x > WORLD_W) {
+      fireballs.splice(i, 1);
+      continue;
+    }
+    let hitEnemy = false;
+    for (const e of level.enemies) {
+      if (!e.alive || e.squished) continue;
+      if (overlap(f.x, f.y, 8, 8, e.x, e.y, e.w, e.h)) {
+        e.squished = true;
+        e.squishTimer = 25;
+        state.enemiesDefeated++;
+        state.score += 200;
+        addPopup(e.x - camX, e.y - 20, "+200");
+        hitEnemy = true;
+        break;
+      }
+    }
+    if (hitEnemy) fireballs.splice(i, 1);
+  }
 
   // --- Coins ---
   for (const c of level.coins) {
@@ -418,6 +570,8 @@ function damagePlayer(pitFall = false) {
     player.vx        = 0;
     player.vy        = 0;
     player.invincible = 120;
+    player.firePower  = false;
+    fireballs         = [];
   }
 }
 
@@ -494,6 +648,73 @@ function drawWater() {
     ctx.fillStyle = "rgba(100,181,246,0.35)";
     ctx.fillRect(sx + 2, GROUND_Y + wave, TILE - 4, 3);
   }
+}
+
+function drawQuestionBlock(b) {
+  const sx = b.x - camX;
+  if (sx + b.w < 0 || sx > CANVAS_W) return;
+  const bump = b.bumpTimer > 0 ? (b.bumpTimer / 14) * 7 : 0;
+  const y = b.y - bump;
+  if (!b.emptied) {
+    ctx.fillStyle = "#f9a825";
+    ctx.fillRect(sx + 1, y + 1, b.w - 2, b.h - 2);
+    ctx.strokeStyle = "#b8860b";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 0.5, y + 0.5, b.w - 1, b.h - 1);
+    ctx.fillStyle = "#fff8e1";
+    ctx.font = "bold 22px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("?", sx + b.w / 2, y + b.h / 2 + 2);
+  } else {
+    ctx.fillStyle = "#8d4a2a";
+    ctx.fillRect(sx, y, b.w, b.h);
+    ctx.strokeStyle = "#4e2a18";
+    ctx.lineWidth = 1;
+    for (let bx = 0; bx < b.w; bx += 10) {
+      ctx.beginPath();
+      ctx.moveTo(sx + bx, y);
+      ctx.lineTo(sx + bx, y + b.h);
+      ctx.stroke();
+    }
+    for (let by = 0; by < b.h; by += 10) {
+      ctx.beginPath();
+      ctx.moveTo(sx, y + by);
+      ctx.lineTo(sx + b.w, y + by);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawMushroom(m) {
+  const sx = m.x - camX;
+  if (sx + m.w < 0 || sx > CANVAS_W) return;
+  const cy = m.y + m.h * 0.35;
+  ctx.fillStyle = "#c62828";
+  ctx.beginPath();
+  ctx.arc(sx + m.w / 2, cy, m.w * 0.48, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(sx + m.w * 0.35, cy - 2, 3, 0, Math.PI * 2);
+  ctx.arc(sx + m.w * 0.65, cy - 2, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#eceff1";
+  ctx.fillRect(sx + m.w * 0.35, m.y + m.h * 0.45, m.w * 0.3, m.h * 0.55);
+}
+
+function drawFireball(f) {
+  const sx = f.x - camX;
+  if (sx < -20 || sx > CANVAS_W + 20) return;
+  const pulse = 0.85 + Math.sin(coinSpin * 3) * 0.15;
+  ctx.fillStyle = "#ff6f00";
+  ctx.beginPath();
+  ctx.arc(sx + 4, f.y + 4, 5 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffeb3b";
+  ctx.beginPath();
+  ctx.arc(sx + 3, f.y + 3, 2.5, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawPlatform(p) {
@@ -590,12 +811,12 @@ function drawPlayer() {
   ctx.fillStyle = "#1565c0";
   ctx.fillRect(ox + 3, player.y + player.h - 16, player.w - 6, 10);
 
-  // Body (red shirt)
-  ctx.fillStyle = "#c62828";
+  // Body (shirt — white when fire Mario)
+  ctx.fillStyle = player.firePower ? "#fafafa" : "#c62828";
   ctx.fillRect(ox + 2, player.y + 14, player.w - 4, player.h - 30);
 
   // Arms
-  ctx.fillStyle = "#c62828";
+  ctx.fillStyle = player.firePower ? "#fafafa" : "#c62828";
   ctx.fillRect(ox - 4, player.y + 16, 7, 10);
   ctx.fillRect(ox + player.w - 3, player.y + 16, 7, 10);
 
@@ -603,7 +824,7 @@ function drawPlayer() {
   ctx.fillStyle = "#ffcc80";
   ctx.fillRect(ox + 4, player.y + 2, player.w - 8, 14);
 
-  // Hat
+  // Hat (red; fire Mario keeps red cap)
   ctx.fillStyle = "#c62828";
   ctx.fillRect(ox + 2,  player.y - 2,  player.w - 4, 6);
   ctx.fillRect(ox + 6,  player.y - 8,  player.w - 12, 8);
@@ -647,6 +868,11 @@ function drawHUD() {
 
   ctx.textAlign = "center";
   ctx.fillText(`COINS ${String(state.coinsCollected).padStart(3,"0")}`, CANVAS_W / 2, 26);
+  if (player && player.firePower) {
+    ctx.fillStyle = "#ff6f00";
+    ctx.font = "bold 14px 'Courier New'";
+    ctx.fillText("FIRE", CANVAS_W / 2, 40);
+  }
 
   ctx.textAlign = "right";
   for (let i = 0; i < state.lives; i++) {
@@ -688,7 +914,7 @@ function drawOverlay(title, titleColor, lines, blink) {
   if (blink) {
     ctx.fillStyle = Math.floor(Date.now() / 500) % 2 === 0 ? "#ffd700" : "#e6b800";
     ctx.font = "bold 20px 'Courier New'";
-    ctx.fillText(isMobile ? "TAP TO PLAY AGAIN" : "PRESS ENTER to play again", CANVAS_W / 2, CANVAS_H - 55);
+    ctx.fillText(isMobile ? "TAP TO PLAY AGAIN" : "PRESS ENTER or SPACE to play again", CANVAS_W / 2, CANVAS_H - 55);
   }
 }
 
@@ -708,8 +934,9 @@ function drawStart() {
 
   ctx.fillStyle = "#ccc";
   ctx.font = "16px 'Courier New'";
-  ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 290);
-  ctx.fillText("Reach the flag  +1000  Time bonus up to +2000", CANVAS_W / 2, 320);
+  ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
+  ctx.fillText("Reach the flag  +1000  Time bonus up to +2000", CANVAS_W / 2, 305);
+  ctx.fillText("? blocks: bump from below  mushroom  X = fire", CANVAS_W / 2, 335);
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
     ctx.fillStyle = "#ffd700";
@@ -742,9 +969,12 @@ function render() {
   if (level) {
     drawWater();
     for (const p of level.platforms) drawPlatform(p);
+    for (const b of level.questionBlocks) drawQuestionBlock(b);
     for (const p of level.pipes)     drawPipe(p);
     for (const c of level.coins)     drawCoin(c);
+    for (const m of level.mushrooms) drawMushroom(m);
     for (const e of level.enemies)   drawEnemy(e);
+    for (const f of fireballs)       drawFireball(f);
     drawFlag();
   }
   if (player) drawPlayer();
@@ -920,6 +1150,7 @@ async function startGame() {
   state.runStartMs     = Date.now();
   state.playTimeMs     = 0;
   state.popups         = [];
+  fireballs            = [];
   state.phase          = "playing";
 }
 

@@ -99,6 +99,13 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
     rng(); rng(); // pipex, pipeh
   }
 
+  // Question blocks — same RNG consumption as game.js generateLevel()
+  const nQ = 12 + Math.floor(rng() * 8);
+  for (let i = 0; i < nQ; i++) {
+    rng(); // qx
+    rng(); // qy
+  }
+
   // maxScore = all coins + all enemies + win bonus + max time bonus
   const maxScore = coinCount * 100 + enemyCount * 200 + 1000 + 2000;
   return { coinCount, enemyCount, maxScore };
