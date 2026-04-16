@@ -203,7 +203,7 @@ window.addEventListener("keydown", e => {
   keys[e.code] = true;
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
   if (state.phase === "start" && (e.code === "Space" || e.code === "Enter")) startGame();
-  if (state.phase === "done"  && e.code === "Enter") resetToStart();
+  if ((state.phase === "done" || state.phase === "gameover") && e.code === "Enter") resetToStart();
 });
 window.addEventListener("keyup", e => { keys[e.code] = false; });
 
@@ -601,10 +601,10 @@ function drawOverlay(title, titleColor, lines, blink) {
     y += 40;
   }
 
-  if (blink && Math.floor(Date.now() / 600) % 2 === 0) {
-    ctx.fillStyle = "#ffd700";
-    ctx.font = "bold 18px 'Courier New'";
-    ctx.fillText("PRESS ENTER to play again", CANVAS_W / 2, CANVAS_H - 60);
+  if (blink) {
+    ctx.fillStyle = Math.floor(Date.now() / 500) % 2 === 0 ? "#ffd700" : "#e6b800";
+    ctx.font = "bold 20px 'Courier New'";
+    ctx.fillText("PRESS ENTER to play again", CANVAS_W / 2, CANVAS_H - 55);
   }
 }
 
@@ -666,20 +666,26 @@ function render() {
   drawHUD();
   drawPopups();
 
-  if (state.phase === "gameover" || (state.phase === "submitting" && !state.won) || (state.phase === "done" && !state.won)) {
+  const submitting = state.phase === "submitting";
+  const done       = state.phase === "done";
+  const statusText = submitting ? "Saving score..."
+                   : (sbClient ? "Score saved!" : "");
+  const statusColor = submitting ? "#ffd700" : "#4caf50";
+
+  if (state.phase === "gameover" || (submitting && !state.won) || (done && !state.won)) {
     drawOverlay("GAME OVER", "#e63946", [
       { text: `Score: ${state.score}` },
-      { text: `Coins: ${state.coinsCollected}  Enemies: ${state.enemiesDefeated}` },
-      { text: state.phase === "submitting" ? "Submitting score..." : "Score saved!", color: state.phase === "submitting" ? "#ffd700" : "#4caf50" },
-    ], state.phase === "done");
+      { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
+      ...(statusText ? [{ text: statusText, color: statusColor }] : []),
+    ], done);
   }
 
-  if (state.phase === "win" || (state.phase === "submitting" && state.won) || (state.phase === "done" && state.won)) {
+  if (state.phase === "win" || (submitting && state.won) || (done && state.won)) {
     drawOverlay("YOU WIN!", "#ffd700", [
       { text: `Final Score: ${state.score}` },
-      { text: `Coins: ${state.coinsCollected}  Enemies: ${state.enemiesDefeated}` },
-      { text: state.phase === "submitting" ? "Submitting score..." : "Score saved!", color: state.phase === "submitting" ? "#ffd700" : "#4caf50" },
-    ], state.phase === "done");
+      { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
+      ...(statusText ? [{ text: statusText, color: statusColor }] : []),
+    ], done);
   }
 }
 
@@ -734,38 +740,36 @@ async function startSession() {
 }
 
 async function submitScore() {
-  if (!state.sessionToken) { state.phase = "done"; await loadLeaderboard(); return; }
-
   state.phase = "submitting";
 
-  if (!state.playerName) {
-    const n = window.prompt("Your name for the leaderboard (max 12 chars):", "") || "Guest";
-    state.playerName = n.trim().slice(0, 12) || "Guest";
-    localStorage.setItem("marioName", state.playerName);
-  }
-
-  try {
-    const res = await fetch(`${EDGE_BASE}/submit-score`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        sessionId      : state.sessionId,
-        token          : state.sessionToken,
-        name           : state.playerName,
-        score          : state.score,
-        coinsCollected : state.coinsCollected,
-        enemiesDefeated: state.enemiesDefeated,
-        won            : state.won,
-        playTimeMs     : state.playTimeMs,
-      }),
-    });
-    const result = await res.json();
-    if (result.rank) console.log(`Leaderboard rank: #${result.rank}`);
-  } catch (e) {
-    console.warn("submitScore failed:", e.message);
+  if (state.sessionToken) {
+    try {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 8000);  // 8s timeout
+      const res = await fetch(`${EDGE_BASE}/submit-score`, {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          sessionId      : state.sessionId,
+          token          : state.sessionToken,
+          name           : state.playerName || "Guest",
+          score          : state.score,
+          coinsCollected : state.coinsCollected,
+          enemiesDefeated: state.enemiesDefeated,
+          won            : state.won,
+          playTimeMs     : state.playTimeMs,
+        }),
+      });
+      clearTimeout(timeout);
+      const result = await res.json();
+      if (result.rank) console.log(`Leaderboard rank: #${result.rank}`);
+    } catch (e) {
+      console.warn("submitScore failed:", e.message);
+    }
   }
 
   state.phase = "done";
@@ -802,6 +806,13 @@ function renderLeaderboard(items) {
 // GAME FLOW
 // ============================================================
 async function startGame() {
+  // Ask for name once at game start — not mid-submission
+  if (!state.playerName) {
+    const n = window.prompt("Enter your name for the leaderboard (max 12 chars):", "") || "Guest";
+    state.playerName = n.trim().slice(0, 12) || "Guest";
+    localStorage.setItem("marioName", state.playerName);
+  }
+
   state.phase = "loading";
 
   const session = await startSession();
