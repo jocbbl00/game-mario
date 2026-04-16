@@ -305,8 +305,8 @@ function update(dt) {
   if (player.x < 0) player.x = 0;
   if (player.x > WORLD_W - player.w) player.x = WORLD_W - player.w;
 
-  // --- Fall death ---
-  if (player.y > CANVAS_H + 80) { damagePlayer(); return; }
+  // --- Fall death (must ignore i-frames or we return early forever and never decrement invincible) ---
+  if (player.y > CANVAS_H + 80) { damagePlayer(true); return; }
 
   // --- Platform + pipe collision ---
   player.onGround = false;
@@ -405,8 +405,8 @@ function update(dt) {
   }
 }
 
-function damagePlayer() {
-  if (player.invincible > 0) return;
+function damagePlayer(pitFall = false) {
+  if (!pitFall && player.invincible > 0) return;
   state.lives--;
   if (state.lives <= 0) {
     state.playTimeMs = Date.now() - state.runStartMs;
