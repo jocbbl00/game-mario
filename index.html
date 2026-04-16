@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mario Runner</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="wrapper">
+    <div id="game-area">
+      <canvas id="gameCanvas" width="800" height="560"></canvas>
+    </div>
+    <div id="sidebar">
+      <div id="leaderboard-box">
+        <div id="lb-title">TOP SCORES</div>
+        <ol id="leaderboardList"><li>Loading...</li></ol>
+      </div>
+      <div id="controls-box">
+        <div class="ctrl-title">CONTROLS</div>
+        <div class="ctrl">Arrow keys / WASD — move</div>
+        <div class="ctrl">Space / W / Up — jump</div>
+        <div class="ctrl">Stomp enemies for +200</div>
+        <div class="ctrl">Collect coins for +100</div>
+        <div class="ctrl">Reach the flag to win!</div>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="game.js"></script>
+</body>
+</html>
