@@ -100,7 +100,7 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
   }
 
   // Question blocks — same RNG consumption as game.js generateLevel()
-  const nQ = 12 + Math.floor(rng() * 8);
+  const nQ = 8 + Math.floor(rng() * 5);
   for (let i = 0; i < nQ; i++) {
     rng(); // qx
     rng(); // qy

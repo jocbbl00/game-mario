@@ -17,6 +17,8 @@ const MUSHROOM_W = 24;
 const MUSHROOM_H = 24;
 const FIREBALL_SPEED = 10;
 const FIRE_COOLDOWN_FRAMES = 21; // ~0.35s at 60fps
+const MUSHROOM_ALIVE_SEC = 5;
+const FIRE_POWER_SEC = 5;
 
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
@@ -169,17 +171,69 @@ function generateLevel(seed) {
   }
 
   // --- QUESTION BLOCKS (must consume RNG in same order on server) ---
-  const nQ = 12 + Math.floor(rng() * 8);
+  // Same 2 rng() calls per block as before; snap X so block sits over standable ground/pipe-free.
+  const nQ = 8 + Math.floor(rng() * 5);
   for (let i = 0; i < nQ; i++) {
-    const qx = 400 + Math.floor(rng() * (WORLD_W - 800));
-    const qy = GROUND_Y - 60 - Math.floor(rng() * 100);
+    const qxRaw = 400 + Math.floor(rng() * (WORLD_W - 800));
+    const qy = GROUND_Y - 130 - Math.floor(rng() * 90);
+    const q = pickQuestionBlockPlacement(qxRaw, qy, out);
     out.questionBlocks.push({
-      x: qx, y: qy, w: TILE, h: TILE,
+      x: q.x, y: q.y, w: TILE, h: TILE,
       emptied: false, bumpTimer: 0,
     });
   }
 
   return out;
+}
+
+function questionBlockOverlapsPipe(qx, qy, pipes) {
+  for (const pipe of pipes) {
+    if (overlap(qx, qy, TILE, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) return true;
+  }
+  return false;
+}
+
+function hasStandableSupportUnder(out, bx, bw, by) {
+  const blockBottom = by + TILE;
+  if (blockBottom > GROUND_Y - 16) return false;
+  for (let tx = Math.floor(bx / TILE) * TILE; tx < bx + bw; tx += TILE) {
+    if (out.groundSet.has(tx)) return true;
+  }
+  return false;
+}
+
+function pickQuestionBlockPlacement(qxRaw, qy, out) {
+  const tiles = [...out.groundSet].filter(x => x >= 320 && x < WORLD_W - 200)
+    .sort((a, b) => Math.abs(a - qxRaw) - Math.abs(b - qxRaw));
+  const tryX = (qx) => {
+    if (!hasStandableSupportUnder(out, qx, TILE, qy)) return null;
+    if (questionBlockOverlapsPipe(qx, qy, out.pipes)) return null;
+    return { x: qx, y: qy };
+  };
+  for (const t of tiles) {
+    const ok = tryX(t);
+    if (ok) return ok;
+    const ok2 = tryX(t + TILE);
+    if (ok2) return ok2;
+  }
+  for (let step = 0; step < 60; step++) {
+    const qx = 320 + step * TILE;
+    if (qx >= WORLD_W - 400) break;
+    const ok = tryX(qx);
+    if (ok) return ok;
+  }
+  for (const t of [...out.groundSet].sort((a, b) => a - b)) {
+    if (t < 320 || t >= WORLD_W - 200) continue;
+    const ok = tryX(t);
+    if (ok) return ok;
+  }
+  for (const t of [...out.groundSet].sort((a, b) => a - b)) {
+    if (t < 280 || t >= WORLD_W - 200) continue;
+    if (!hasStandableSupportUnder(out, t, TILE, qy)) continue;
+    if (questionBlockOverlapsPipe(t, qy, out.pipes)) continue;
+    return { x: t, y: qy };
+  }
+  return { x: 400, y: qy };
 }
 
 // ============================================================
@@ -222,6 +276,7 @@ function createPlayer() {
     walkTimer: 0,
     maxX: 80,
     firePower: false,
+    firePowerTimer: 0,
     fireCooldown: 0,
   };
 }
@@ -260,8 +315,8 @@ function setupTouchControls() {
 
   bindBtn(btnLeft,  "ArrowLeft");
   bindBtn(btnRight, "ArrowRight");
-  bindBtn(btnJump,  "Space");
-  if (btnFire) bindBtn(btnFire, "KeyA");
+  bindBtn(btnJump,  "ArrowUp");
+  if (btnFire) bindBtn(btnFire, "Space");
 }
 
 // Tap canvas to start / restart on touch devices
@@ -342,6 +397,7 @@ function spawnMushroom(block) {
     h: MUSHROOM_H,
     emerge: 0,
     onGround: false,
+    lifeSec: MUSHROOM_ALIVE_SEC,
   });
 }
 
@@ -360,18 +416,18 @@ function update(dt) {
 
   coinSpin += dt * 4;
 
-  // --- Player input (KeyA is fireball; use ArrowLeft / Q for left on PC) ---
-  if (keys["ArrowLeft"] || keys["KeyQ"])    { player.vx = -PLAYER_SPEED; player.facingRight = false; }
-  else if (keys["ArrowRight"] || keys["KeyD"]) { player.vx = PLAYER_SPEED;  player.facingRight = true;  }
+  // --- Player input: ← → move, ↑/W jump, Space fireball ---
+  if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED; player.facingRight = false; }
+  else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED;  player.facingRight = true;  }
   else player.vx *= 0.75;
 
-  if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
+  if ((keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
   }
 
   if (player.fireCooldown > 0) player.fireCooldown--;
-  if (player.firePower && player.fireCooldown <= 0 && keys["KeyA"]) {
+  if (player.firePower && player.fireCooldown <= 0 && keys["Space"]) {
     player.fireCooldown = FIRE_COOLDOWN_FRAMES;
     const dir = player.facingRight ? 1 : -1;
     fireballs.push({
@@ -409,6 +465,14 @@ function update(dt) {
   // --- Invincibility ---
   if (player.invincible > 0) player.invincible--;
 
+  if (player.firePower && player.firePowerTimer > 0) {
+    player.firePowerTimer -= dt;
+    if (player.firePowerTimer <= 0) {
+      player.firePower = false;
+      fireballs = [];
+    }
+  }
+
   // --- Walk animation ---
   player.walkTimer += dt;
   const moving = Math.abs(player.vx) > 0.5;
@@ -422,6 +486,11 @@ function update(dt) {
   const solidForMush = [...level.platforms, ...level.questionBlocks, ...level.pipes];
   for (let i = level.mushrooms.length - 1; i >= 0; i--) {
     const m = level.mushrooms[i];
+    m.lifeSec -= dt;
+    if (m.lifeSec <= 0) {
+      level.mushrooms.splice(i, 1);
+      continue;
+    }
     if (m.emerge < 36) {
       m.y -= 2;
       m.emerge++;
@@ -437,10 +506,10 @@ function update(dt) {
       continue;
     }
     if (overlap(player.x, player.y, player.w, player.h, m.x, m.y, m.w, m.h)) {
-      if (!player.firePower) {
-        player.firePower = true;
-        addPopup(m.x - camX + m.w / 2, m.y - 8, "FIRE!");
-      }
+      const firstFire = !player.firePower;
+      player.firePower = true;
+      player.firePowerTimer = FIRE_POWER_SEC;
+      if (firstFire) addPopup(m.x - camX + m.w / 2, m.y - 8, "FIRE!");
       level.mushrooms.splice(i, 1);
     }
   }
@@ -572,6 +641,7 @@ function damagePlayer(pitFall = false) {
     player.vy        = 0;
     player.invincible = 120;
     player.firePower  = false;
+    player.firePowerTimer = 0;
     fireballs         = [];
   }
 }
@@ -600,15 +670,153 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawBackground() {
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function lerpColor(hexA, hexB, t) {
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  const u = Math.max(0, Math.min(1, t));
+  const r = Math.round(a.r + (b.r - a.r) * u);
+  const g = Math.round(a.g + (b.g - a.g) * u);
+  const bl = Math.round(a.b + (b.b - a.b) * u);
+  return `rgb(${r},${g},${bl})`;
+}
+
+// 0 spring, 1 summer, 2 fall, 3 winter — advances as you cross the world
+function getSeasonProgress() {
+  if (!player) return { index: 0, blend: 0 };
+  const t = Math.min(1, Math.max(0, player.x / WORLD_W));
+  const seg = t * 4;
+  const index = Math.min(3, Math.floor(seg));
+  const blend = seg - index;
+  return { index, blend, t };
+}
+
+const SEASON_SKY_TOP = ["#fce4ec", "#29b6f6", "#ffcc80", "#cfd8dc"];
+const SEASON_SKY_MID = ["#f8bbd0", "#4fc3f7", "#ffa726", "#90a4ae"];
+const SEASON_SKY_BOT = ["#90caf9", "#81d4fa", "#ffab91", "#eceff1"];
+const SEASON_HILL  = ["#66bb6a", "#43a047", "#8d6e63", "#b0bec5"];
+
+function drawSeasonalLayers(seasonIndex, blend) {
+  const next = (seasonIndex + 1) % 4;
+  const top = lerpColor(SEASON_SKY_TOP[seasonIndex], SEASON_SKY_TOP[next], blend);
+  const mid = lerpColor(SEASON_SKY_MID[seasonIndex], SEASON_SKY_MID[next], blend);
+  const bot = lerpColor(SEASON_SKY_BOT[seasonIndex], SEASON_SKY_BOT[next], blend);
+
   const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-  g.addColorStop(0, "#4a8fd4");
-  g.addColorStop(1, "#87bdea");
+  g.addColorStop(0, top);
+  g.addColorStop(0.45, mid);
+  g.addColorStop(1, bot);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+  // Summer sun (fade in from late spring; full in summer)
+  if (seasonIndex === 1 || (seasonIndex === 0 && blend > 0.62)) {
+    const sunA = seasonIndex === 1 ? 1 : (blend - 0.62) / 0.38;
+    if (sunA > 0.04) {
+      ctx.globalAlpha = Math.min(1, sunA);
+      ctx.fillStyle = "#fff9c4";
+      ctx.beginPath();
+      ctx.arc(CANVAS_W - 90, 85, 38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 253, 200, 0.35)";
+      ctx.beginPath();
+      ctx.arc(CANVAS_W - 90, 85, 52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Spring: cherry blossom branches + drifting petals
+  if (seasonIndex === 0 || (seasonIndex === 3 && blend > 0.85)) {
+    const petalAlpha = seasonIndex === 0 ? 1 : (1 - blend) * 6;
+    ctx.globalAlpha = Math.min(1, petalAlpha);
+    for (let i = 0; i < 6; i++) {
+      const bx = ((i * 210 - camX * 0.35) % (CANVAS_W + 120)) - 40;
+      const by = 40 + (i % 3) * 25;
+      ctx.strokeStyle = "#5d4037";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(bx, by + 30);
+      ctx.quadraticCurveTo(bx + 40, by, bx + 90, by + 15);
+      ctx.stroke();
+      for (let p = 0; p < 5; p++) {
+        const px = bx + 15 + p * 14;
+        const py = by + 8 + Math.sin(p) * 4;
+        ctx.fillStyle = "#f8bbd0";
+        ctx.beginPath();
+        ctx.arc(px, py, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#f48fb1";
+        ctx.beginPath();
+        ctx.arc(px + 3, py + 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    for (let i = 0; i < 35; i++) {
+      const px = ((i * 67 + camX * 0.4 + coinSpin * 18) % (CANVAS_W + 80)) - 20;
+      const py = 30 + ((i * 41 + coinSpin * 22 + camX * 0.15) % (CANVAS_H - 120));
+      ctx.fillStyle = "rgba(244, 143, 177, 0.55)";
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(coinSpin * 0.3 + i * 0.2);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 4, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Fall: drifting leaves
+  if (seasonIndex === 2 || (seasonIndex === 1 && blend > 0.75) || (seasonIndex === 2 && blend < 0.2)) {
+    const leafA = seasonIndex === 2 ? 1 : 0.5;
+    ctx.globalAlpha = leafA;
+    for (let i = 0; i < 28; i++) {
+      const px = ((i * 89 - camX * 0.5) % (CANVAS_W + 60)) - 30;
+      const py = 40 + ((i * 73 + coinSpin * 28 + camX * 0.25) % (CANVAS_H - 100));
+      const wobble = Math.sin(coinSpin + i) * 0.4;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(wobble + i * 0.7);
+      ctx.fillStyle = i % 3 === 0 ? "#e65100" : (i % 3 === 1 ? "#f57c00" : "#ff8f00");
+      ctx.fillRect(-5, -2, 10, 5);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Winter: snow
+  if (seasonIndex === 3 || (seasonIndex === 2 && blend > 0.75)) {
+    const snowA = seasonIndex === 3 ? 1 : (blend - 0.75) / 0.25;
+    ctx.globalAlpha = Math.min(1, snowA);
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    for (let i = 0; i < 55; i++) {
+      const px = ((i * 47 + camX * 0.65 + coinSpin * 35) % (CANVAS_W + 30)) - 10;
+      const py = ((i * 61 + coinSpin * 52 + camX * 0.1) % (CANVAS_H + 40)) - 20;
+      ctx.fillRect(px, py, 2.5, 2.5);
+      ctx.fillRect(px + 1, py + 3, 1.5, 1.5);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawBackground() {
+  const { index, blend } = getSeasonProgress();
+  drawSeasonalLayers(index, blend);
+
+  const next = (index + 1) % 4;
+  const cloudHex = index === 3
+    ? lerpColor("#e3eaf2", "#ffffff", blend)
+    : next === 3
+    ? lerpColor("#ffffff", "#e3eaf2", blend)
+    : "#ffffff";
+
   // Parallax clouds
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillStyle = cloudHex;
   const clouds = [[120,70,50],[290,50,40],[480,80,55],[650,45,42],[780,65,38]];
   for (const [bx, by, r] of clouds) {
     const cx = ((bx - camX * 0.25 % (CANVAS_W + 200) + CANVAS_W + 200) % (CANVAS_W + 200)) - 100;
@@ -619,8 +827,9 @@ function drawBackground() {
     ctx.fill();
   }
 
-  // Parallax hills
-  ctx.fillStyle = "#388e3c";
+  // Parallax hills (seasonal greens / frost)
+  const hillCol = lerpColor(SEASON_HILL[index], SEASON_HILL[next], blend);
+  ctx.fillStyle = hillCol;
   for (let h = 0; h < 8; h++) {
     const hx = ((h * 700 - camX * 0.45 + 5600) % 5600) - 200;
     const hr  = 100 + (h % 3) * 35;
@@ -830,6 +1039,18 @@ function drawPlayer() {
   ctx.fillRect(ox + 2,  player.y - 2,  player.w - 4, 6);
   ctx.fillRect(ox + 6,  player.y - 8,  player.w - 12, 8);
 
+  // Yale "Y" on cap (Yale blue outline, cream fill)
+  ctx.font = "bold 8px Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const capCx = ox + player.w / 2;
+  const capCy = player.y - 4;
+  ctx.strokeStyle = "#00356B";
+  ctx.lineWidth = 1.25;
+  ctx.fillStyle = "#fffef5";
+  ctx.strokeText("Y", capCx, capCy);
+  ctx.fillText("Y", capCx, capCy);
+
   // Eye
   ctx.fillStyle = "#000";
   ctx.fillRect(ox + player.w - 10, player.y + 6, 4, 4);
@@ -860,26 +1081,40 @@ function drawFlag() {
 
 function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillRect(0, 0, CANVAS_W, 44);
+  ctx.fillRect(0, 0, CANVAS_W, 52);
 
   ctx.fillStyle = "#fff";
   ctx.font = "bold 16px 'Courier New'";
   ctx.textAlign = "left";
-  ctx.fillText(`SCORE ${String(state.score).padStart(6,"0")}`, 10, 26);
+  ctx.fillText(`SCORE ${String(state.score).padStart(6,"0")}`, 10, 22);
 
   ctx.textAlign = "center";
-  ctx.fillText(`COINS ${String(state.coinsCollected).padStart(3,"0")}`, CANVAS_W / 2, 26);
+  ctx.fillText(`COINS ${String(state.coinsCollected).padStart(3,"0")}`, CANVAS_W / 2, 22);
+
+  const seasonNames = ["Spring", "Summer", "Fall", "Winter"];
+  const si = getSeasonProgress().index;
+  ctx.fillStyle = "#b0bec5";
+  ctx.font = "11px 'Courier New'";
+  ctx.textAlign = "left";
+  ctx.fillText(seasonNames[si], 10, 38);
+
   if (player && player.firePower) {
     ctx.fillStyle = "#ff6f00";
     ctx.font = "bold 14px 'Courier New'";
-    ctx.fillText("FIRE", CANVAS_W / 2, 40);
+    ctx.textAlign = "center";
+    ctx.fillText(`FIRE ${Math.max(0, Math.ceil(player.firePowerTimer))}s`, CANVAS_W / 2, 38);
   }
+
+  ctx.fillStyle = "#9e9e9e";
+  ctx.font = "10px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillText("← → move   ↑ or W jump   Space fireball", CANVAS_W / 2, 48);
 
   ctx.textAlign = "right";
   for (let i = 0; i < state.lives; i++) {
     ctx.fillStyle = "#e63946";
     ctx.font = "20px Arial";
-    ctx.fillText("♥", CANVAS_W - 10 - i * 22, 26);
+    ctx.fillText("♥", CANVAS_W - 10 - i * 22, 22);
   }
 }
 
@@ -937,7 +1172,15 @@ function drawStart() {
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
   ctx.fillText("Reach the flag  +1000  Time bonus up to +2000", CANVAS_W / 2, 305);
-  ctx.fillText("? blocks: bump from below  mushroom  A = fire", CANVAS_W / 2, 335);
+  ctx.fillText("? blocks: bump from below  mushroom  Space = fire", CANVAS_W / 2, 335);
+
+  ctx.fillStyle = "#a5d6a7";
+  ctx.font = "14px 'Courier New'";
+  if (isMobile) {
+    ctx.fillText("Touch: ◀ ▶ move · ▲ jump · ● fire (with mushroom)", CANVAS_W / 2, 365);
+  } else {
+    ctx.fillText("← → move   ↑ or W jump   Space fireball", CANVAS_W / 2, 365);
+  }
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
     ctx.fillStyle = "#ffd700";
