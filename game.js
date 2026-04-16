@@ -340,11 +340,24 @@ function update(dt) {
       continue;
     }
 
-    // Prevent ground enemies from walking into gaps (rivers)
+    // Prevent ground enemies from crossing rivers or passing pipes
     if (e.groundBound) {
+      // Gap check: no ground tile ahead → turn around
       const frontX = e.vx > 0 ? e.x + e.w : e.x - 1;
       const tileX  = Math.floor(frontX / TILE) * TILE;
-      if (!level.groundSet.has(tileX)) e.vx = -e.vx;
+      if (!level.groundSet.has(tileX)) {
+        e.vx = -e.vx;
+      } else {
+        // Pipe check: next step would collide with a pipe → turn around
+        const nx = e.x + e.vx;
+        for (const pipe of level.pipes) {
+          if (!overlap(e.x, e.y, e.w, e.h, pipe.x, pipe.y, pipe.w, pipe.h) &&
+               overlap(nx,  e.y, e.w, e.h, pipe.x, pipe.y, pipe.w, pipe.h)) {
+            e.vx = -e.vx;
+            break;
+          }
+        }
+      }
     }
 
     e.x += e.vx;
