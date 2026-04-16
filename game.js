@@ -18,8 +18,8 @@ const GROUND_Y  = CANVAS_H - TILE;   // y where ground platforms start
 // SUPABASE  — anon key only used for READ (leaderboard)
 // Score writes go through Edge Functions which hold the secret.
 // ============================================================
-const SUPABASE_URL      = "YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL      = "https://sdaajuoywdbxwqfmvlqg.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_wTVyg4HZ4d9FhsZv-VdScw_-j1vy6Wb";
 const EDGE_BASE         = `${SUPABASE_URL}/functions/v1`;
 
 let sbClient = null;
