@@ -773,7 +773,11 @@ async function submitScore() {
 }
 
 async function loadLeaderboard() {
-  if (!sbClient) return;
+  const el = document.getElementById("leaderboardList");
+  if (!sbClient) {
+    if (el) el.innerHTML = "<li style='color:#555;font-size:10px'>Configure Supabase<br>to enable scores</li>";
+    return;
+  }
   try {
     const { data } = await sbClient
       .from("mario_scores")
@@ -781,7 +785,9 @@ async function loadLeaderboard() {
       .order("score", { ascending: false })
       .limit(10);
     if (data) renderLeaderboard(data);
-  } catch (_) {}
+  } catch (_) {
+    if (el) el.innerHTML = "<li style='color:#555'>Unavailable</li>";
+  }
 }
 
 function renderLeaderboard(items) {
