@@ -19,6 +19,7 @@ const FIREBALL_SPEED = 10;
 const FIRE_COOLDOWN_FRAMES = 21; // ~0.35s at 60fps
 const MUSHROOM_ALIVE_SEC = 5;
 const FIRE_POWER_SEC = 5;
+const RESPAWN_INVINCIBLE_MS = 3000;
 
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
@@ -270,7 +271,7 @@ function createPlayer() {
     w: PLAYER_W, h: PLAYER_H,
     onGround: false,
     alive: true,
-    invincible: 0,
+    invincibleUntilMs: 0,
     facingRight: true,
     walkFrame: 0,
     walkTimer: 0,
@@ -447,7 +448,7 @@ function update(dt) {
   if (player.x < 0) player.x = 0;
   if (player.x > WORLD_W - player.w) player.x = WORLD_W - player.w;
 
-  // --- Fall death (must ignore i-frames or we return early forever and never decrement invincible) ---
+  // --- Fall death (pit ignores i-frames so you can still lose a life in a hole) ---
   if (player.y > CANVAS_H + 80) { damagePlayer(true); return; }
 
   // --- Platform + pipe + ? blocks ---
@@ -461,9 +462,6 @@ function update(dt) {
 
   // --- Track furthest-right for respawn ---
   if (player.x > player.maxX) player.maxX = player.x;
-
-  // --- Invincibility ---
-  if (player.invincible > 0) player.invincible--;
 
   if (player.firePower && player.firePowerTimer > 0) {
     player.firePowerTimer -= dt;
@@ -593,7 +591,7 @@ function update(dt) {
     if (e.x <= e.minX)          { e.x = e.minX;          e.vx =  Math.abs(e.vx); }
     if (e.x + e.w >= e.maxX)    { e.x = e.maxX - e.w;    e.vx = -Math.abs(e.vx); }
 
-    if (player.invincible > 0) continue;
+    if (performance.now() < player.invincibleUntilMs) continue;
     if (!overlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h)) continue;
 
     // Stomp check: player falling + player bottom near enemy top
@@ -628,7 +626,7 @@ function update(dt) {
 }
 
 function damagePlayer(pitFall = false) {
-  if (!pitFall && player.invincible > 0) return;
+  if (!pitFall && performance.now() < player.invincibleUntilMs) return;
   state.lives--;
   if (state.lives <= 0) {
     state.playTimeMs = Date.now() - state.runStartMs;
@@ -639,7 +637,7 @@ function damagePlayer(pitFall = false) {
     player.y         = GROUND_Y - PLAYER_H;
     player.vx        = 0;
     player.vy        = 0;
-    player.invincible = 120;
+    player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
     player.firePower  = false;
     player.firePowerTimer = 0;
     fireballs         = [];
@@ -1002,7 +1000,7 @@ function drawEnemy(e) {
 
 function drawPlayer() {
   const sx = player.x - camX;
-  if (player.invincible > 0 && Math.floor(player.invincible / 6) % 2 === 0) return;
+  if (performance.now() < player.invincibleUntilMs && Math.floor(performance.now() / 80) % 2 === 0) return;
 
   ctx.save();
   if (!player.facingRight) {
@@ -1106,9 +1104,9 @@ function drawHUD() {
   }
 
   ctx.fillStyle = "#9e9e9e";
-  ctx.font = "10px 'Courier New'";
+  ctx.font = "9px 'Courier New'";
   ctx.textAlign = "center";
-  ctx.fillText("← → move   ↑ or W jump   Space fireball", CANVAS_W / 2, 48);
+  ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ \u2191 ] [ W ] jump    [ Space ] fire", CANVAS_W / 2, 48);
 
   ctx.textAlign = "right";
   for (let i = 0; i < state.lives; i++) {
@@ -1175,11 +1173,13 @@ function drawStart() {
   ctx.fillText("? blocks: bump from below  mushroom  Space = fire", CANVAS_W / 2, 335);
 
   ctx.fillStyle = "#a5d6a7";
-  ctx.font = "14px 'Courier New'";
+  ctx.font = "13px 'Courier New'";
   if (isMobile) {
-    ctx.fillText("Touch: ◀ ▶ move · ▲ jump · ● fire (with mushroom)", CANVAS_W / 2, 365);
+    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ \u25B2 ] jump    [ \u25CF ] fire", CANVAS_W / 2, 362);
+    ctx.fillText("(fire needs ? mushroom)", CANVAS_W / 2, 382);
   } else {
-    ctx.fillText("← → move   ↑ or W jump   Space fireball", CANVAS_W / 2, 365);
+    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ \u2191 ] [ W ] jump    [ Space ] fire", CANVAS_W / 2, 362);
+    ctx.fillText("(fire after ? mushroom)", CANVAS_W / 2, 382);
   }
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {

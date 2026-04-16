@@ -18,12 +18,34 @@
       </div>
       <div id="controls-box">
         <div class="ctrl-title">CONTROLS</div>
-        <div class="ctrl">← → move · ↑ or W jump</div>
-        <div class="ctrl">Space — fireball (after ? mushroom)</div>
-        <div class="ctrl">Hit ? blocks from below for mushroom</div>
-        <div class="ctrl">Stomp enemies for +200</div>
-        <div class="ctrl">Collect coins for +100</div>
-        <div class="ctrl">Reach the flag to win!</div>
+        <div class="ctrl-visual">
+          <div class="ctrl-block">
+            <div class="key-row" aria-hidden="true">
+              <kbd class="key-arrow">←</kbd>
+              <kbd class="key-arrow">→</kbd>
+            </div>
+            <span class="ctrl-label">Move left / right</span>
+          </div>
+          <div class="ctrl-block">
+            <div class="key-row" aria-hidden="true">
+              <kbd class="key-arrow">↑</kbd>
+              <kbd>W</kbd>
+            </div>
+            <span class="ctrl-label">Jump</span>
+          </div>
+          <div class="ctrl-block">
+            <div class="key-row" aria-hidden="true">
+              <kbd class="kbd-space">Space</kbd>
+            </div>
+            <span class="ctrl-label">Fireball</span>
+            <span class="ctrl-sublabel">(after ? mushroom)</span>
+          </div>
+        </div>
+        <div class="ctrl-hints">
+          <div class="ctrl-hint-row"><span class="hint-ico">?</span> Bump from below</div>
+          <div class="ctrl-hint-row"><span class="hint-ico">+</span> Stomp +200 · Coins +100</div>
+          <div class="ctrl-hint-row"><span class="hint-ico hint-flag">Win</span> Reach flag</div>
+        </div>
       </div>
     </div>
   </div>
