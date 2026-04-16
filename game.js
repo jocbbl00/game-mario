@@ -67,6 +67,7 @@ function generateLevel(seed) {
     flagX     : WORLD_W - 320,
     coinCount : 0,
     enemyCount: 0,
+    groundSet : new Set(),   // tile-aligned x positions that have solid ground
   };
 
   // --- GROUND ---
@@ -77,6 +78,7 @@ function generateLevel(seed) {
       x += TILE * sz;
       continue;
     }
+    out.groundSet.add(x);
     out.platforms.push({ x, y: GROUND_Y, w: TILE, h: TILE * 3, type: "ground" });
   }
 
@@ -140,6 +142,7 @@ function generateLevel(seed) {
       vx: 1.2 * (dirRoll > 0.5 ? 1 : -1),
       minX: 0, maxX: WORLD_W,
       alive: true, squished: false, squishTimer: 0,
+      groundBound: true,
     });
     out.enemyCount++;
   }
@@ -199,6 +202,8 @@ function createPlayer() {
 // INPUT
 // ============================================================
 const keys = {};
+const isMobile = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+
 window.addEventListener("keydown", e => {
   keys[e.code] = true;
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
@@ -206,6 +211,37 @@ window.addEventListener("keydown", e => {
   if ((state.phase === "done" || state.phase === "gameover") && e.code === "Enter") resetToStart();
 });
 window.addEventListener("keyup", e => { keys[e.code] = false; });
+
+// Touch controls
+function setupTouchControls() {
+  const btnLeft  = document.getElementById("touch-left");
+  const btnRight = document.getElementById("touch-right");
+  const btnJump  = document.getElementById("touch-jump");
+
+  function bindBtn(el, key) {
+    el.addEventListener("touchstart", e => {
+      e.preventDefault();
+      keys[key] = true;
+      el.classList.add("pressed");
+    }, { passive: false });
+    const release = e => { keys[key] = false; el.classList.remove("pressed"); };
+    el.addEventListener("touchend",    release);
+    el.addEventListener("touchcancel", release);
+  }
+
+  bindBtn(btnLeft,  "ArrowLeft");
+  bindBtn(btnRight, "ArrowRight");
+  bindBtn(btnJump,  "Space");
+}
+
+// Tap canvas to start / restart on touch devices
+canvas.addEventListener("touchstart", e => {
+  e.preventDefault();
+  if (state.phase === "start") startGame();
+  else if (state.phase === "done" || state.phase === "gameover") resetToStart();
+}, { passive: false });
+
+setupTouchControls();
 
 // ============================================================
 // COLLISION HELPERS
@@ -302,6 +338,13 @@ function update(dt) {
     if (e.squished) {
       if (--e.squishTimer <= 0) e.alive = false;
       continue;
+    }
+
+    // Prevent ground enemies from walking into gaps (rivers)
+    if (e.groundBound) {
+      const frontX = e.vx > 0 ? e.x + e.w : e.x - 1;
+      const tileX  = Math.floor(frontX / TILE) * TILE;
+      if (!level.groundSet.has(tileX)) e.vx = -e.vx;
     }
 
     e.x += e.vx;
@@ -604,7 +647,7 @@ function drawOverlay(title, titleColor, lines, blink) {
   if (blink) {
     ctx.fillStyle = Math.floor(Date.now() / 500) % 2 === 0 ? "#ffd700" : "#e6b800";
     ctx.font = "bold 20px 'Courier New'";
-    ctx.fillText("PRESS ENTER to play again", CANVAS_W / 2, CANVAS_H - 55);
+    ctx.fillText(isMobile ? "TAP TO PLAY AGAIN" : "PRESS ENTER to play again", CANVAS_W / 2, CANVAS_H - 55);
   }
 }
 
@@ -630,7 +673,7 @@ function drawStart() {
   if (Math.floor(Date.now() / 600) % 2 === 0) {
     ctx.fillStyle = "#ffd700";
     ctx.font = "bold 22px 'Courier New'";
-    ctx.fillText("PRESS SPACE TO START", CANVAS_W / 2, 420);
+    ctx.fillText(isMobile ? "TAP TO START" : "PRESS SPACE TO START", CANVAS_W / 2, 420);
   }
 }
 

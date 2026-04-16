@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Mario Runner</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -24,6 +24,15 @@
         <div class="ctrl">Collect coins for +100</div>
         <div class="ctrl">Reach the flag to win!</div>
       </div>
+    </div>
+  </div>
+  <div id="touch-controls">
+    <div class="touch-zone-left">
+      <div id="touch-left"  class="touch-btn">&#9664;</div>
+      <div id="touch-right" class="touch-btn">&#9654;</div>
+    </div>
+    <div class="touch-zone-right">
+      <div id="touch-jump" class="touch-btn touch-jump-btn">&#9650;</div>
     </div>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
