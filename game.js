@@ -24,6 +24,8 @@ const FIRE_POWER_SEC = 5;
 const JUMP_POWER_SEC = 5;
 const SUPER_JUMP_FORCE = -20;          // green mushroom: higher jump
 const RESPAWN_INVINCIBLE_MS = 3000;
+/** How far left of max progress to respawn on death (surface). 5 tiles × TILE = 200px. */
+const RESPAWN_SURFACE_BACK_TILES = 5;
 const SEASON_DURATION_SEC = 10;
 const UNDERGROUND_BONUS_W = 3000;
 
@@ -674,6 +676,25 @@ function overlap(ax, ay, aw, ah, bx, by, bw, bh) {
   return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
+function playerRespawnInvincibleNow() {
+  return !autoPilot && performance.now() < player.invincibleUntilMs;
+}
+
+/** Stomp kill: normal falling hit, or during post-death i-frames allow standing on top without vy check. */
+function canStompGroundEnemy(player, e) {
+  const foot = player.y + player.h;
+  if (player.vy > 0 && foot < e.y + 16) return true;
+  if (playerRespawnInvincibleNow() && foot <= e.y + 22 && foot < e.y + e.h * 0.48) return true;
+  return false;
+}
+
+function canStompFish(player, f) {
+  const foot = player.y + player.h;
+  if (player.vy > 0 && foot < f.y + f.h * 0.5) return true;
+  if (playerRespawnInvincibleNow() && foot <= f.y + 16 && foot < f.y + f.h * 0.52) return true;
+  return false;
+}
+
 function resolveVsBoxes(boxes) {
   for (const b of boxes) {
     if (b.ceilingExit) continue;
@@ -1019,8 +1040,7 @@ function update(dt) {
 
     if (!overlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h)) continue;
 
-    // Stomp check: player falling + player bottom near enemy top
-    if (player.vy > 0 && (player.y + player.h) < e.y + 16) {
+    if (canStompGroundEnemy(player, e)) {
       e.squished    = true;
       e.squishTimer = 25;
       player.vy     = -9;
@@ -1064,7 +1084,7 @@ function update(dt) {
     // Collide only while visible above water
     if (f.y < f.baseY) {
       if (!overlap(player.x, player.y, player.w, player.h, f.x - f.w / 2, f.y, f.w, f.h)) continue;
-      if (player.vy > 0 && player.y + player.h < f.y + f.h * 0.5) {
+      if (canStompFish(player, f)) {
         f.alive = false;
         player.vy = -9;
         state.enemiesDefeated++;
@@ -1141,7 +1161,7 @@ function damagePlayer(pitFall = false) {
       player.jumpPowerTimer = 0;
       fireballs         = [];
     } else {
-      player.x         = Math.max(80, player.maxX - 200);
+      player.x         = Math.max(80, player.maxX - RESPAWN_SURFACE_BACK_TILES * TILE);
       player.y         = GROUND_Y - PLAYER_H;
       player.vx        = 0;
       player.vy        = 0;
