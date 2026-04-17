@@ -34,7 +34,8 @@ function makeRNG(seed: number) {
 // Runs the EXACT same RNG sequence as generateLevel() in game.js
 // but only counts coins and enemies — no entity objects needed.
 // ============================================================
-function computeLevelStats(seed: number): { coinCount: number; enemyCount: number; maxScore: number } {
+/** coinCeiling = max collectible coins (surface RNG count + all bonus-room coins). */
+function computeLevelStats(seed: number): { coinCeiling: number; enemyCount: number; maxScore: number } {
   const TILE    = 40;
   const WORLD_W = 100000; // 10 segments × 10000 (5× longer world)
   const GROUND_Y = 520; // CANVAS_H - TILE
@@ -106,20 +107,22 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
     rng(); // qy
   }
 
-  // Bonus underground stars: 10 pts each; max stars per layout matches game.js buildUndergroundBonus coinSpecs.
-  const bonusStarTotal =
+  // Bonus underground pickups: same +100 as overworld coins; client increments coinsCollected for each.
+  const bonusCoinSlots =
     7 + 7 + 7 + 8 + 7 + 8 + 8 + 9 + 7 + 9;
-  const bonusStarScoreMax = bonusStarTotal * 100;
+  const bonusCoinScoreMax = bonusCoinSlots * 100;
 
-  // maxScore = coins + enemies + win clear + max time + max per-segment flag bonuses (9×500) + all bonus stars
+  // maxScore = surface coins + enemies + win + time + flags + all possible bonus-coin score
   const maxScore =
     coinCount * 100 +
     enemyCount * 200 +
     2500 +
     2000 +
     4500 +
-    bonusStarScoreMax;
-  return { coinCount, enemyCount, maxScore };
+    bonusCoinScoreMax;
+  // Session coin cap includes bonus room so submit-score coinsCollected check allows full run.
+  const coinCeiling = coinCount + bonusCoinSlots;
+  return { coinCeiling, enemyCount, maxScore };
 }
 
 // ============================================================
@@ -151,7 +154,7 @@ serve(async (req) => {
   const seed      = Math.floor(Math.random() * 0xFFFFFFFF);
   const issuedAt  = Date.now();
 
-  const { coinCount, enemyCount, maxScore } = computeLevelStats(seed);
+  const { coinCeiling, enemyCount, maxScore } = computeLevelStats(seed);
 
   // Token signs: sessionId|seed|maxScore|issuedAt
   // The client receives sessionId + token but NEVER sees SESSION_SECRET.
@@ -163,7 +166,7 @@ serve(async (req) => {
     id          : sessionId,
     seed,
     max_score   : maxScore,
-    coin_count  : coinCount,
+    coin_count  : coinCeiling,
     enemy_count : enemyCount,
     issued_at   : issuedAt,
     token,

@@ -1190,22 +1190,17 @@ function update(dt) {
     if (hitEnemy) fireballs.splice(i, 1);
   }
 
-  // --- Coins (underground: larger hitbox; score uses layer so bonus points always apply) ---
+  // --- Coins (underground: wider hitbox; bonus coins count like surface — +1 coin, +100 score) ---
   const inBonusRoom = state.layer === "underground";
   const coinHitR = inBonusRoom ? 18 : 10;
   for (const c of level.coins) {
     if (c.r) continue;
     if (!overlap(player.x, player.y, player.w, player.h, c.x - coinHitR, c.y - coinHitR, coinHitR * 2, coinHitR * 2)) continue;
     c.r = true;
-    if (c.bonusOnly || inBonusRoom) {
-      state.bonusStars++;
-      state.score += 100;
-      addPopup(c.x - camX, c.y, "\u2605 BONUS +100");
-    } else {
-      state.coinsCollected++;
-      state.score += 100;
-      addPopup(c.x - camX, c.y, "+100");
-    }
+    state.coinsCollected++;
+    state.score += 100;
+    addPopup(c.x - camX, c.y, inBonusRoom || c.bonusOnly ? "\u2605 +100" : "+100");
+    if (inBonusRoom || c.bonusOnly) state.bonusStars++;
   }
 
   // --- Enemies ---
@@ -2520,27 +2515,20 @@ function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.fillRect(0, 0, CANVAS_W, 56);
 
-  ctx.fillStyle = state.layer === "underground" ? "#fff59d" : "#fff";
+  ctx.fillStyle = "#fff";
   ctx.font = "bold 16px 'Courier New'";
   ctx.textAlign = "left";
   ctx.fillText(`SCORE ${String(state.score).padStart(6,"0")}`, 10, 22);
-  if (state.layer === "underground" && state.bonusStars > 0) {
-    ctx.fillStyle = "#aed581";
-    ctx.font = "bold 11px 'Courier New'";
-    ctx.fillText(`+${state.bonusStars * 100} from bonus stars`, 10, 36);
-  }
 
   ctx.textAlign = "center";
   ctx.fillText(`COINS ${String(state.coinsCollected).padStart(3,"0")}`, CANVAS_W / 2, 22);
 
   const seasonNames = ["Spring", "Summer", "Fall", "Winter"];
   const si = getSeasonProgress().index;
-  if (state.layer !== "underground") {
-    ctx.fillStyle = "#b0bec5";
-    ctx.font = "11px 'Courier New'";
-    ctx.textAlign = "left";
-    ctx.fillText(seasonNames[si], 10, 38);
-  }
+  ctx.fillStyle = "#b0bec5";
+  ctx.font = "11px 'Courier New'";
+  ctx.textAlign = "left";
+  ctx.fillText(seasonNames[si], 10, 38);
 
   if (player && player.firePower) {
     ctx.fillStyle = "#ff6f00";
@@ -2564,7 +2552,7 @@ function drawHUD() {
     ctx.fillStyle = "#90caf9";
     ctx.font = "9px 'Courier New'";
     const cap = level && level.bonusStarTotal != null ? level.bonusStarTotal : 3;
-    ctx.fillText(`Stars ${state.bonusStars}/${cap} (+100 score each)`, CANVAS_W / 2, 52);
+    ctx.fillText(`Stars ${state.bonusStars}/${cap} (count as coins +100)`, CANVAS_W / 2, 52);
   } else {
     ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 44);
     ctx.fillStyle = "#78909c";
