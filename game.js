@@ -27,8 +27,6 @@ const RESPAWN_INVINCIBLE_MS = 3000;
 /** How far left of max progress to respawn on death (surface). 5 tiles × TILE = 200px. */
 const RESPAWN_SURFACE_BACK_TILES = 5;
 const SEASON_DURATION_SEC = 10;
-const UNDERGROUND_BONUS_W = 3000;
-
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
 // Score writes go through Edge Functions which hold the secret.
@@ -258,7 +256,7 @@ function getWorldWidth() {
   return WORLD_W;
 }
 
-// One dark green warp pipe per stage segment (no extra RNG — post-pass only).
+// One red warp-down pipe per stage segment (no extra RNG — post-pass only).
 function markWarpPipes(lv) {
   for (const p of lv.pipes) p.warpDown = false;
   for (let seg = 0; seg < NUM_LEVELS; seg++) {
@@ -271,41 +269,26 @@ function markWarpPipes(lv) {
   }
 }
 
-function buildUndergroundBonus() {
-  const UW = UNDERGROUND_BONUS_W;
+/** Each surface stage (0–9) has a distinct bonus room. `dy` = pixels above ground for platform top / coin height. */
+function makeBonusRoom(segment, uw, stemLen, exitOff, brickSpecs, coinSpecs) {
   const groundSet = new Set();
   const platforms = [];
-  for (let x = 0; x < UW; x += TILE) {
+  for (let x = 0; x < uw; x += TILE) {
     groundSet.add(x);
     platforms.push({ x, y: GROUND_Y, w: TILE, h: TILE * 3, type: "ground" });
   }
   const brick = (x, y, w, h = TILE) => {
     platforms.push({ x, y, w, h, type: "brick" });
   };
-  // Longer route: varied heights and gaps (left → right, then up to ceiling exit)
-  brick(200, GROUND_Y - 85, 180);
-  brick(440, GROUND_Y - 135, 150);
-  brick(640, GROUND_Y - 95, 200);
-  brick(900, GROUND_Y - 175, 170);
-  brick(1120, GROUND_Y - 125, 130);
-  brick(1320, GROUND_Y - 205, 180);
-  brick(1560, GROUND_Y - 155, 140);
-  brick(1780, GROUND_Y - 235, 160);
-  brick(2000, GROUND_Y - 185, 120);
-  brick(2180, GROUND_Y - 265, 150);
-  brick(2360, GROUND_Y - 225, 100);
-  brick(2520, GROUND_Y - 305, 130);
-  brick(2680, GROUND_Y - 365, 110);
-  brick(2820, GROUND_Y - 405, 100);
-
-  const exitX = UW - TILE * 2 - 60;
+  for (const b of brickSpecs) {
+    const h = b[3] != null ? b[3] : TILE;
+    brick(b[0], GROUND_Y - b[1], b[2], h);
+  }
+  const exitX = uw - TILE * 2 - exitOff;
   const pipeW = TILE * 2;
-  // Short stem: mouth stays at ceiling; Mario must jump to the lip (not a tall tube to mid-screen).
-  const stemLen = 72;
   const exitPipeH = stemLen + TILE * 2;
   brick(exitX, TILE, 8, stemLen + TILE);
   brick(exitX + pipeW - 8, TILE, 8, stemLen + TILE);
-
   const pipes = [{
     x: exitX,
     y: 0,
@@ -314,15 +297,7 @@ function buildUndergroundBonus() {
     warpUp: true,
     ceilingExit: true,
   }];
-  const coins = [
-    { x: 320, y: GROUND_Y - 125, r: false, bonusOnly: true },
-    { x: 540, y: GROUND_Y - 175, r: false, bonusOnly: true },
-    { x: 780, y: GROUND_Y - 115, r: false, bonusOnly: true },
-    { x: 1020, y: GROUND_Y - 215, r: false, bonusOnly: true },
-    { x: 1420, y: GROUND_Y - 235, r: false, bonusOnly: true },
-    { x: 1860, y: GROUND_Y - 255, r: false, bonusOnly: true },
-    { x: 2280, y: GROUND_Y - 295, r: false, bonusOnly: true },
-  ];
+  const coins = coinSpecs.map(([cx, dy]) => ({ x: cx, y: GROUND_Y - dy, r: false, bonusOnly: true }));
   return {
     platforms,
     coins,
@@ -334,10 +309,78 @@ function buildUndergroundBonus() {
     groundSet,
     coinCount: 0,
     enemyCount: 0,
-    undergroundWidth: UW,
+    undergroundWidth: uw,
     isUnderground: true,
     bonusStarTotal: coins.length,
+    bonusSegment: segment,
   };
+}
+
+function buildUndergroundBonus(segmentIndex = 0) {
+  const seg = ((segmentIndex | 0) % NUM_LEVELS + NUM_LEVELS) % NUM_LEVELS;
+  const S = (n) => Math.max(22, Math.min(36, n));
+  switch (seg) {
+    case 0:
+      return makeBonusRoom(seg, 2700, S(28), 52, [
+        [180, 88, 200], [460, 138, 140], [700, 98, 220], [980, 178, 160],
+        [1240, 128, 130], [1500, 208, 180], [1760, 158, 120], [2020, 238, 150],
+        [2280, 188, 100], [2480, 268, 120], [2580, 328, 90],
+      ], [[320, 118], [620, 168], [900, 128], [1320, 218], [1720, 238], [2100, 258], [2440, 288]]);
+    case 1:
+      return makeBonusRoom(seg, 2650, S(26), 48, [
+        [220, 75, 260], [560, 145, 100], [780, 105, 180], [1080, 185, 200],
+        [1380, 135, 140], [1680, 215, 160], [1920, 165, 100], [2180, 245, 140],
+        [2380, 195, 120], [2520, 285, 100],
+      ], [[380, 105], [700, 175], [1020, 135], [1540, 225], [1860, 185], [2260, 255], [2460, 305]]);
+    case 2:
+      return makeBonusRoom(seg, 2900, S(30), 58, [
+        [160, 95, 160], [380, 155, 120], [560, 115, 200], [820, 195, 140],
+        [1040, 145, 130], [1280, 225, 170], [1540, 175, 150], [1780, 255, 120],
+        [2000, 205, 180], [2260, 285, 130], [2460, 235, 100], [2620, 315, 110],
+      ], [[300, 125], [640, 185], [940, 135], [1180, 235], [1620, 255], [1940, 215], [2340, 295], [2680, 335]]);
+    case 3:
+      return makeBonusRoom(seg, 2750, S(24), 44, [
+        [200, 110, 100], [340, 150, 100], [480, 190, 100], [620, 230, 100],
+        [900, 160, 220], [1200, 200, 160], [1460, 240, 140], [1720, 180, 200],
+        [2000, 260, 120], [2220, 220, 100], [2420, 300, 130],
+      ], [[260, 140], [420, 220], [760, 190], [1120, 230], [1380, 270], [1780, 210], [2080, 290], [2480, 330]]);
+    case 4:
+      return makeBonusRoom(seg, 2600, S(32), 50, [
+        [240, 70, 320], [620, 120, 140], [860, 160, 180], [1120, 130, 160],
+        [1380, 200, 200], [1660, 150, 120], [1900, 210, 160], [2140, 170, 140],
+        [2360, 250, 120],
+      ], [[400, 100], [780, 150], [1100, 180], [1480, 220], [1820, 190], [2220, 270], [2460, 230]]);
+    case 5:
+      return makeBonusRoom(seg, 2850, S(27), 56, [
+        [150, 85, 170], [400, 135, 150], [620, 95, 210], [900, 175, 130],
+        [1120, 125, 190], [1380, 205, 150], [1600, 155, 170], [1860, 235, 100],
+        [2060, 185, 200], [2320, 265, 120], [2520, 215, 160], [2740, 295, 90],
+      ], [[280, 115], [520, 165], [800, 125], [1250, 210], [1520, 185], [1920, 250], [2200, 200], [2580, 290]]);
+    case 6:
+      return makeBonusRoom(seg, 2720, S(29), 46, [
+        [190, 100, 200], [460, 180, 120], [640, 120, 240], [940, 200, 140],
+        [1180, 140, 160], [1420, 220, 180], [1700, 160, 120], [1900, 240, 200],
+        [2180, 190, 100], [2380, 270, 140], [2580, 220, 100],
+      ], [[340, 130], [600, 210], [880, 150], [1280, 230], [1560, 190], [2000, 260], [2280, 210], [2520, 285]]);
+    case 7:
+      return makeBonusRoom(seg, 2950, S(25), 60, [
+        [170, 78, 150], [360, 118, 150], [550, 158, 150], [740, 198, 150],
+        [1000, 128, 280], [1340, 168, 140], [1560, 208, 160], [1800, 148, 220],
+        [2100, 228, 120], [2320, 178, 180], [2560, 258, 140], [2780, 308, 100],
+      ], [[250, 108], [480, 188], [820, 138], [1180, 198], [1460, 238], [1740, 178], [2060, 248], [2420, 288], [2760, 328]]);
+    case 8:
+      return makeBonusRoom(seg, 2680, S(31), 42, [
+        [210, 92, 280], [560, 142, 120], [760, 112, 200], [1040, 172, 240],
+        [1360, 132, 160], [1600, 192, 180], [1860, 152, 140], [2080, 232, 200],
+        [2360, 182, 160],
+      ], [[350, 122], [680, 162], [920, 142], [1280, 202], [1720, 222], [1980, 182], [2240, 252]]);
+    default:
+      return makeBonusRoom(seg, 2800, S(26), 54, [
+        [200, 80, 190], [450, 130, 170], [680, 100, 200], [940, 170, 210],
+        [1220, 120, 150], [1460, 200, 180], [1720, 150, 160], [1960, 230, 140],
+        [2200, 180, 200], [2480, 260, 120], [2660, 220, 100], [2760, 300, 100],
+      ], [[310, 110], [580, 160], [860, 130], [1140, 200], [1380, 180], [1660, 240], [2060, 210], [2380, 280], [2700, 320]]);
+  }
 }
 
 function exitUnderground() {
@@ -368,7 +411,11 @@ function tryPipeWarpEnter() {
     const hc = player.x + player.w / 2;
     if (hc < pipe.x + 10 || hc > pipe.x + pipe.w - 10) continue;
     surfaceLevelRef = level;
-    surfaceSave = { camX, pipe };
+    surfaceSave = {
+      camX,
+      pipe,
+      segment: Math.min(NUM_LEVELS - 1, Math.max(0, Math.floor(pipe.x / LEVEL_SEG_W))),
+    };
     const endY = Math.min(pipe.y + TILE + 96, pipe.y + pipe.h - 28);
     state.pipeWarpAnim = {
       kind: "down",
@@ -390,12 +437,12 @@ function tryPipeWarpExit() {
   if (state.pipeWarpAnim) return;
   for (const pipe of level.pipes) {
     if (!pipe.warpUp || !pipe.ceilingExit) continue;
-    const mouthX = pipe.x + 8;
-    const mouthW = pipe.w - 16;
+    const mouthX = pipe.x + 10;
+    const mouthW = pipe.w - 20;
     const mouthY = pipe.y;
-    const mouthH = TILE + 14;
+    const mouthH = TILE + 6;
     if (!overlap(player.x, player.y, player.w, player.h, mouthX, mouthY, mouthW, mouthH)) continue;
-    if (player.vy >= -0.45) continue;
+    if (player.vy >= -0.28) continue;
     state.pipeWarpAnim = {
       kind: "up",
       elapsed: 0,
@@ -425,7 +472,7 @@ function updatePipeWarpAnim(dt) {
     player.vy = 0;
     player.onGround = false;
     if (u >= 1) {
-      level = buildUndergroundBonus();
+      level = buildUndergroundBonus(surfaceSave ? surfaceSave.segment : 0);
       player.x = 70;
       player.y = GROUND_Y - PLAYER_H;
       player.vx = 0;
@@ -1946,10 +1993,24 @@ function drawThemeDecor(themeIndex) {
 
 function drawBackground() {
   if (state.layer === "underground") {
+    const bs = (level && level.bonusSegment != null) ? level.bonusSegment % 10 : 0;
+    const UG_PAL = [
+      ["#1a237e", "#0d1642", "#030508"],
+      ["#311b92", "#4527a0", "#12051a"],
+      ["#004d40", "#00695c", "#011910"],
+      ["#3e2723", "#5d4037", "#1a1008"],
+      ["#01579b", "#0277bd", "#001a2e"],
+      ["#4a148c", "#6a1b9a", "#140a18"],
+      ["#1b5e20", "#2e7d32", "#051005"],
+      ["#bf360c", "#e65100", "#210800"],
+      ["#263238", "#37474f", "#0a0e10"],
+      ["#0d1b2a", "#1b263b", "#020408"],
+    ];
+    const pal = UG_PAL[bs];
     const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-    g.addColorStop(0, "#1a237e");
-    g.addColorStop(0.5, "#0d1642");
-    g.addColorStop(1, "#030508");
+    g.addColorStop(0, pal[0]);
+    g.addColorStop(0.5, pal[1]);
+    g.addColorStop(1, pal[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.fillStyle = "rgba(255,255,255,0.035)";
@@ -2191,23 +2252,13 @@ function drawPipe(pipe) {
   const sx = pipe.x - camX;
   if (sx + pipe.w < 0 || sx > CANVAS_W) return;
   if (pipe.warpDown || pipe.warpUp) {
-    if (pipe.ceilingExit) {
-      ctx.fillStyle = "#6a1c1c";
-      ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
-      ctx.fillStyle = "#4a0f0f";
-      ctx.fillRect(sx, pipe.y, pipe.w, TILE);
-      ctx.fillStyle = "#300808";
-      ctx.fillRect(sx + 4, pipe.y, 8, TILE);
-      ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
-    } else {
-      ctx.fillStyle = "#1b5e20";
-      ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
-      ctx.fillStyle = "#145214";
-      ctx.fillRect(sx, pipe.y, pipe.w, TILE);
-      ctx.fillStyle = "#0d3810";
-      ctx.fillRect(sx + 4, pipe.y, 8, TILE);
-      ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
-    }
+    ctx.fillStyle = "#6a1c1c";
+    ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
+    ctx.fillStyle = "#4a0f0f";
+    ctx.fillRect(sx, pipe.y, pipe.w, TILE);
+    ctx.fillStyle = "#300808";
+    ctx.fillRect(sx + 4, pipe.y, 8, TILE);
+    ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
     return;
   }
   ctx.fillStyle = "#2e7d32";
@@ -2405,7 +2456,8 @@ function drawHUD() {
   ctx.font = "9px 'Courier New'";
   ctx.textAlign = "center";
   if (state.layer === "underground") {
-    ctx.fillText("BONUS   jump into ceiling pipe to exit    [ \u2190 ] [ \u2192 ]    [ Space ] jump", CANVAS_W / 2, 44);
+    const br = level && level.bonusSegment != null ? level.bonusSegment + 1 : "?";
+    ctx.fillText(`BONUS ${br}/10   jump into red pipe lip (up) to exit    [ \u2190 ] [ \u2192 ]    [ Space ]`, CANVAS_W / 2, 44);
     ctx.fillStyle = "#90caf9";
     ctx.font = "9px 'Courier New'";
     const cap = level && level.bonusStarTotal != null ? level.bonusStarTotal : 3;
@@ -2414,7 +2466,7 @@ function drawHUD() {
     ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 44);
     ctx.fillStyle = "#78909c";
     ctx.font = "8px 'Courier New'";
-    ctx.fillText("Dark green pipe: stand on top + [ \u2193 ] bonus", CANVAS_W / 2, 52);
+    ctx.fillText("Red warp pipe: stand on top + [ \u2193 ] bonus room", CANVAS_W / 2, 52);
   }
 
   ctx.fillStyle = "#9ccc65";
