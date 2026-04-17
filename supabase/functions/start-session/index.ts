@@ -36,7 +36,7 @@ function makeRNG(seed: number) {
 // ============================================================
 function computeLevelStats(seed: number): { coinCount: number; enemyCount: number; maxScore: number } {
   const TILE    = 40;
-  const WORLD_W = 20000;
+  const WORLD_W = 100000; // 10 segments × 10000 (5× longer world)
   const GROUND_Y = 520; // CANVAS_H - TILE
 
   const rng = makeRNG(seed);
@@ -53,7 +53,7 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
   }
 
   // --- ELEVATED PLATFORMS ---
-  const numPlat = 25 + Math.floor(rng() * 20);
+  const numPlat = (25 + Math.floor(rng() * 20)) * 5; // ×5 for 5× world
   let px = 300;
   for (let i = 0; i < numPlat; i++) {
     px += 200 + Math.floor(rng() * 250);
@@ -77,7 +77,7 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
   }
 
   // --- FLOATING COIN ROWS ---
-  const nRows = 15 + Math.floor(rng() * 10);
+  const nRows = (15 + Math.floor(rng() * 10)) * 5; // ×5 for 5× world
   for (let i = 0; i < nRows; i++) {
     rng(); // rx
     rng(); // ry
@@ -86,7 +86,7 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
   }
 
   // --- GROUND ENEMIES ---
-  const nGround = 10 + Math.floor(rng() * 8);
+  const nGround = (10 + Math.floor(rng() * 8)) * 5; // ×5 for 5× world
   for (let i = 0; i < nGround; i++) {
     rng(); // ex
     rng(); // dirRoll
@@ -94,13 +94,13 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
   }
 
   // Pipes — just consume RNG calls, no entities to count
-  const nPipes = 8 + Math.floor(rng() * 5);
+  const nPipes = (8 + Math.floor(rng() * 5)) * 5; // ×5 for 5× world
   for (let i = 0; i < nPipes; i++) {
     rng(); rng(); // pipex, pipeh
   }
 
   // Question blocks — same RNG consumption as game.js generateLevel()
-  const nQ = 8 + Math.floor(rng() * 5);
+  const nQ = (8 + Math.floor(rng() * 5)) * 5; // ×5 for 5× world
   for (let i = 0; i < nQ; i++) {
     rng(); // qx
     rng(); // qy

@@ -12,7 +12,7 @@ const PLAYER_W  = 28;
 const PLAYER_H  = 36;
 const PLAYER_SPEED = 4.5;
 const NUM_LEVELS   = 10;
-const LEVEL_SEG_W  = 2000;           // 10 segments ≈ 20000 world units to final flag
+const LEVEL_SEG_W  = 10000;          // 10 segments ≈ 100000 world units to final flag
 const WORLD_W      = NUM_LEVELS * LEVEL_SEG_W;
 const GROUND_Y  = CANVAS_H - TILE;   // y where ground platforms start
 const MUSHROOM_W = 24;
@@ -93,7 +93,7 @@ function generateLevel(seed) {
   }
 
   // --- ELEVATED PLATFORMS + their coins + enemies ---
-  const numPlat = 25 + Math.floor(rng() * 20);        // RNG: numPlat
+  const numPlat = (25 + Math.floor(rng() * 20)) * 5;  // RNG: numPlat (×5 for 5× world)
   let px = 300;
   for (let i = 0; i < numPlat; i++) {
     px += 200 + Math.floor(rng() * 250);              // RNG: px advance
@@ -130,7 +130,7 @@ function generateLevel(seed) {
   }
 
   // --- FLOATING COIN ROWS ---
-  const nRows = 15 + Math.floor(rng() * 10);          // RNG: row count
+  const nRows = (15 + Math.floor(rng() * 10)) * 5;    // RNG: row count (×5 for 5× world)
   for (let i = 0; i < nRows; i++) {
     const rx  = 400 + Math.floor(rng() * (WORLD_W - 800));  // RNG: x
     const ry  = GROUND_Y - 100 - Math.floor(rng() * 150);   // RNG: y
@@ -148,7 +148,7 @@ function generateLevel(seed) {
     .filter(x => x >= 600 && x <= WORLD_W - TILE * 5)
     .sort((a, b) => a - b);
 
-  const nGround = 10 + Math.floor(rng() * 8);         // RNG: count
+  const nGround = (10 + Math.floor(rng() * 8)) * 5;   // RNG: count (×5 for 5× world)
   for (let i = 0; i < nGround; i++) {
     const tileIdx = Math.floor(rng() * spawnableTiles.length); // RNG: x (same 1 call)
     const ex      = spawnableTiles[tileIdx] ?? 600;
@@ -165,7 +165,7 @@ function generateLevel(seed) {
   }
 
   // --- PIPES ---
-  const nPipes = 8 + Math.floor(rng() * 5);           // RNG: pipe count
+  const nPipes = (8 + Math.floor(rng() * 5)) * 5;     // RNG: pipe count (×5 for 5× world)
   for (let i = 0; i < nPipes; i++) {
     const pipex = 600  + Math.floor(rng() * (WORLD_W - 900));  // RNG: x
     const pipeh = TILE * 2 + Math.floor(rng() * TILE);          // RNG: height
@@ -174,7 +174,7 @@ function generateLevel(seed) {
 
   // --- QUESTION BLOCKS (must consume RNG in same order on server) ---
   // Same 2 rng() calls per block as before; snap X so block sits over standable ground/pipe-free.
-  const nQ = 8 + Math.floor(rng() * 5);
+  const nQ = (8 + Math.floor(rng() * 5)) * 5;         // ×5 for 5× world
   for (let i = 0; i < nQ; i++) {
     const qxRaw = 400 + Math.floor(rng() * (WORLD_W - 800));
     const qy = GROUND_Y - 130 - Math.floor(rng() * 90);
