@@ -21,6 +21,8 @@ const FIREBALL_SPEED = 10;
 const FIRE_COOLDOWN_FRAMES = 21; // ~0.35s at 60fps
 const MUSHROOM_ALIVE_SEC = 5;
 const FIRE_POWER_SEC = 5;
+const JUMP_POWER_SEC = 5;
+const SUPER_JUMP_FORCE = -20;          // green mushroom: higher jump
 const RESPAWN_INVINCIBLE_MS = 3000;
 
 // ============================================================
@@ -75,6 +77,7 @@ function generateLevel(seed) {
     pipes     : [],
     questionBlocks: [],
     mushrooms : [],
+    fish      : [],
     coinCount : 0,
     enemyCount: 0,
     groundSet : new Set(),   // tile-aligned x positions that have solid ground
@@ -186,6 +189,23 @@ function generateLevel(seed) {
   }
 
   ensurePassablePath(out);
+
+  // --- FISH (jump from water gaps; no RNG consumed — deterministic placement) ---
+  for (let x = TILE * 20; x < WORLD_W - TILE * 15; x += TILE) {
+    if (!out.groundSet.has(x) && Math.floor(x / TILE) % 2 === 0) {
+      out.fish.push({
+        x: x + TILE / 2,
+        baseY: GROUND_Y,
+        y: GROUND_Y,        // tip of fish; moves up (decreasing y) when jumping
+        vy: 0,
+        w: 22, h: 20,
+        alive: true,
+        jumping: false,
+        jumpTimer: 40 + (Math.floor(x / TILE) * 17) % 100,
+      });
+    }
+  }
+
   return out;
 }
 
@@ -328,6 +348,8 @@ function createPlayer() {
     firePower: false,
     firePowerTimer: 0,
     fireCooldown: 0,
+    jumpPower: false,
+    jumpPowerTimer: 0,
   };
 }
 
@@ -438,6 +460,7 @@ function resolveQuestionBlocks() {
 }
 
 function spawnMushroom(block) {
+  const type = Math.random() < 0.5 ? "fire" : "jump";
   level.mushrooms.push({
     x: block.x + block.w / 2 - MUSHROOM_W / 2,
     y: block.y + block.h / 2 - MUSHROOM_H / 2,
@@ -448,6 +471,7 @@ function spawnMushroom(block) {
     emerge: 0,
     onGround: false,
     lifeSec: MUSHROOM_ALIVE_SEC,
+    type,   // "fire" = red cap (fireballs 5s), "jump" = green cap (super-jump 5s)
   });
 }
 
@@ -475,7 +499,7 @@ function update(dt) {
   else player.vx *= 0.75;
 
   if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
-    player.vy = JUMP_FORCE;
+    player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
     player.onGround = false;
   }
 
@@ -522,6 +546,10 @@ function update(dt) {
       fireballs = [];
     }
   }
+  if (player.jumpPower && player.jumpPowerTimer > 0) {
+    player.jumpPowerTimer -= dt;
+    if (player.jumpPowerTimer <= 0) player.jumpPower = false;
+  }
 
   // --- Walk animation ---
   player.walkTimer += dt;
@@ -556,10 +584,17 @@ function update(dt) {
       continue;
     }
     if (overlap(player.x, player.y, player.w, player.h, m.x, m.y, m.w, m.h)) {
-      const firstFire = !player.firePower;
-      player.firePower = true;
-      player.firePowerTimer = FIRE_POWER_SEC;
-      if (firstFire) addPopup(m.x - camX + m.w / 2, m.y - 8, "FIRE!");
+      if (m.type === "fire") {
+        const firstFire = !player.firePower;
+        player.firePower = true;
+        player.firePowerTimer = FIRE_POWER_SEC;
+        if (firstFire) addPopup(m.x - camX + m.w / 2, m.y - 8, "FIRE!");
+      } else {
+        const firstJump = !player.jumpPower;
+        player.jumpPower = true;
+        player.jumpPowerTimer = JUMP_POWER_SEC;
+        if (firstJump) addPopup(m.x - camX + m.w / 2, m.y - 8, "JUMP!");
+      }
       level.mushrooms.splice(i, 1);
     }
   }
@@ -660,6 +695,45 @@ function update(dt) {
     }
   }
 
+  // --- Fish ---
+  for (let i = level.fish.length - 1; i >= 0; i--) {
+    const f = level.fish[i];
+    if (!f.alive) { level.fish.splice(i, 1); continue; }
+
+    if (!f.jumping) {
+      if (--f.jumpTimer <= 0) {
+        f.vy = -11 * Math.sqrt(gMult);   // compensate gravity so height stays consistent
+        f.jumping = true;
+      }
+      continue;
+    }
+
+    f.vy += GRAVITY * gMult;
+    f.y  += f.vy;
+
+    if (f.y >= f.baseY) {              // back below water surface
+      f.y = f.baseY;
+      f.vy = 0;
+      f.jumping = false;
+      f.jumpTimer = 80 + (Math.floor(f.x / 7) % 90);
+    }
+
+    // Collide only while visible above water
+    if (f.y < f.baseY && performance.now() >= player.invincibleUntilMs) {
+      if (!overlap(player.x, player.y, player.w, player.h, f.x - f.w / 2, f.y, f.w, f.h)) continue;
+      if (player.vy > 0 && player.y + player.h < f.y + f.h * 0.5) {
+        f.alive = false;
+        player.vy = -9;
+        state.enemiesDefeated++;
+        state.score += 200;
+        addPopup(f.x - camX, f.y - 20, "+200");
+      } else {
+        damagePlayer();
+        return;
+      }
+    }
+  }
+
   // --- Flags: one per segment; 10th flag wins (~20k world) ---
   const nextFlagX = (state.flagsPassed + 1) * LEVEL_SEG_W - 320;
   if (player.x + player.w >= nextFlagX) {
@@ -698,6 +772,8 @@ function damagePlayer(pitFall = false) {
     player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
     player.firePower  = false;
     player.firePowerTimer = 0;
+    player.jumpPower  = false;
+    player.jumpPowerTimer = 0;
     fireballs         = [];
   }
 }
@@ -757,8 +833,8 @@ function getCreepFactor() {
 function getSeasonProgress() {
   if (!player) return { index: 0, blend: 0 };
   const t = Math.min(1, Math.max(0, player.x / WORLD_W));
-  const seg = t * 4;
-  const index = Math.min(3, Math.floor(seg));
+  const seg = (t * 6) % 4;            // 1.5 full season cycles across the world
+  const index = Math.floor(seg);
   const blend = seg - index;
   return { index, blend, t };
 }
@@ -798,32 +874,10 @@ function drawSeasonalLayers(seasonIndex, blend) {
     }
   }
 
-  // Spring: cherry blossom branches + drifting petals
+  // Spring: drifting sakura petals (trees drawn at ground level in drawGroundTrees)
   if (seasonIndex === 0 || (seasonIndex === 3 && blend > 0.85)) {
     const petalAlpha = seasonIndex === 0 ? 1 : (1 - blend) * 6;
     ctx.globalAlpha = Math.min(1, petalAlpha);
-    for (let i = 0; i < 6; i++) {
-      const bx = ((i * 210 - camX * 0.35) % (CANVAS_W + 120)) - 40;
-      const by = 40 + (i % 3) * 25;
-      ctx.strokeStyle = "#5d4037";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(bx, by + 30);
-      ctx.quadraticCurveTo(bx + 40, by, bx + 90, by + 15);
-      ctx.stroke();
-      for (let p = 0; p < 5; p++) {
-        const px = bx + 15 + p * 14;
-        const py = by + 8 + Math.sin(p) * 4;
-        ctx.fillStyle = "#f8bbd0";
-        ctx.beginPath();
-        ctx.arc(px, py, 7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#f48fb1";
-        ctx.beginPath();
-        ctx.arc(px + 3, py + 2, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
     for (let i = 0; i < 35; i++) {
       const px = ((i * 67 + camX * 0.4 + coinSpin * 18) % (CANVAS_W + 80)) - 20;
       const py = 30 + ((i * 41 + coinSpin * 22 + camX * 0.15) % (CANVAS_H - 120));
@@ -872,6 +926,80 @@ function drawSeasonalLayers(seasonIndex, blend) {
   }
 }
 
+// Draws seasonal trees at ground level behind all game elements.
+// Parallaxed at 0.55× camera speed (between hills and platforms).
+function drawGroundTrees(seasonIndex, blend) {
+  for (let i = 0; i < 10; i++) {
+    const rawX = 60 + i * 210;
+    const sx = ((rawX - camX * 0.55 + (CANVAS_W + 260) * 20) % (CANVAS_W + 260)) - 130;
+    if (sx < -130 || sx > CANVAS_W + 130) continue;
+
+    const treeH  = 60 + (i % 3) * 20;
+    const canopyR = 24 + (i % 3) * 7;
+    const trunkW  = 7 + (i % 2) * 4;
+    const baseY   = GROUND_Y;
+    const cy      = baseY - treeH;
+
+    // Trunk
+    ctx.fillStyle = "#5d4037";
+    ctx.fillRect(sx - trunkW / 2, baseY - treeH * 0.62, trunkW, treeH * 0.62);
+
+    if (seasonIndex === 0) {
+      // Spring — sakura: soft pink blossom cloud
+      ctx.fillStyle = "rgba(248,187,208,0.9)";
+      ctx.beginPath(); ctx.arc(sx, cy, canopyR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(244,143,177,0.55)";
+      ctx.beginPath(); ctx.arc(sx - canopyR * 0.38, cy + 5, canopyR * 0.62, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx + canopyR * 0.38, cy + 5, canopyR * 0.62, 0, Math.PI * 2); ctx.fill();
+    } else if (seasonIndex === 1) {
+      // Summer — full green
+      ctx.fillStyle = "#2e7d32";
+      ctx.beginPath(); ctx.arc(sx, cy, canopyR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#43a047";
+      ctx.beginPath(); ctx.arc(sx - canopyR * 0.3, cy + 4, canopyR * 0.6, 0, Math.PI * 2); ctx.fill();
+    } else if (seasonIndex === 2) {
+      // Fall — maple: orange / deep red
+      const mapCol = i % 3 === 0 ? "#e65100" : i % 3 === 1 ? "#bf360c" : "#ff6d00";
+      ctx.fillStyle = mapCol;
+      ctx.beginPath(); ctx.arc(sx, cy, canopyR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,152,0,0.5)";
+      ctx.beginPath(); ctx.arc(sx + canopyR * 0.3, cy - 4, canopyR * 0.55, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // Winter — bare branches with snow caps
+      ctx.strokeStyle = "#5d4037"; ctx.lineWidth = 2;
+      for (let b = 0; b < 5; b++) {
+        const ang = -Math.PI / 2 + (b - 2) * 0.42;
+        ctx.beginPath();
+        ctx.moveTo(sx, baseY - treeH * 0.62);
+        ctx.lineTo(sx + Math.cos(ang) * canopyR, cy + Math.sin(ang) * canopyR * 0.7);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(236,239,241,0.88)";
+      for (let b = 0; b < 5; b++) {
+        const ang = -Math.PI / 2 + (b - 2) * 0.42;
+        const bx2 = sx + Math.cos(ang) * canopyR;
+        const by2 = cy + Math.sin(ang) * canopyR * 0.7;
+        ctx.beginPath(); ctx.ellipse(bx2, by2, 9, 5, ang, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+}
+
+// Snow cap on top of every visible ground/brick tile — drawn after platforms.
+function drawWinterGroundSnow() {
+  const { index, blend } = getSeasonProgress();
+  if (index !== 3 && !(index === 2 && blend > 0.7)) return;
+  const alpha = index === 3 ? 0.82 : (blend - 0.7) / 0.3 * 0.82;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#eceff1";
+  for (const p of level.platforms) {
+    const sx = p.x - camX;
+    if (sx + p.w < 0 || sx > CANVAS_W) continue;
+    ctx.fillRect(sx, p.y, p.w, p.type === "ground" ? 6 : 4);
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawBackground() {
   const { index, blend } = getSeasonProgress();
   drawSeasonalLayers(index, blend);
@@ -905,6 +1033,8 @@ function drawBackground() {
     ctx.arc(hx, CANVAS_H - 30, hr, Math.PI, 0);
     ctx.fill();
   }
+
+  drawGroundTrees(index, blend);
 
   const creep = player ? getCreepFactor() : 0;
   if (creep > 0.02) {
@@ -990,7 +1120,7 @@ function drawMushroom(m) {
   const sx = m.x - camX;
   if (sx + m.w < 0 || sx > CANVAS_W) return;
   const cy = m.y + m.h * 0.35;
-  ctx.fillStyle = "#c62828";
+  ctx.fillStyle = m.type === "jump" ? "#2e7d32" : "#c62828";
   ctx.beginPath();
   ctx.arc(sx + m.w / 2, cy, m.w * 0.48, Math.PI, 0);
   ctx.fill();
@@ -1001,6 +1131,46 @@ function drawMushroom(m) {
   ctx.fill();
   ctx.fillStyle = "#eceff1";
   ctx.fillRect(sx + m.w * 0.35, m.y + m.h * 0.45, m.w * 0.3, m.h * 0.55);
+}
+
+function drawFish(f) {
+  if (!f.alive || f.y >= f.baseY) return;
+  const sx = f.x - camX;
+  if (sx < -40 || sx > CANVAS_W + 40) return;
+
+  const cx = sx;
+  const cy = f.y + f.h * 0.5;  // centre of fish body
+
+  // Body
+  ctx.fillStyle = "#f57c00";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, f.w * 0.5, f.h * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Belly highlight
+  ctx.fillStyle = "#ffcc80";
+  ctx.beginPath();
+  ctx.ellipse(cx + 2, cy + 2, f.w * 0.24, f.h * 0.19, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tail (right side)
+  ctx.fillStyle = "#e65100";
+  ctx.beginPath();
+  ctx.moveTo(cx + f.w * 0.44, cy);
+  ctx.lineTo(cx + f.w * 0.44 + 9, cy - 7);
+  ctx.lineTo(cx + f.w * 0.44 + 9, cy + 7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye (left, fish faces left)
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(cx - f.w * 0.2, cy - 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(cx - f.w * 0.2 + 0.8, cy - 2.8, 1, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawFireball(f) {
@@ -1201,6 +1371,12 @@ function drawHUD() {
     ctx.textAlign = "center";
     ctx.fillText(`FIRE ${Math.max(0, Math.ceil(player.firePowerTimer))}s`, CANVAS_W / 2, 38);
   }
+  if (player && player.jumpPower) {
+    ctx.fillStyle = "#4caf50";
+    ctx.font = "bold 14px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText(`JUMP ${Math.max(0, Math.ceil(player.jumpPowerTimer))}s`, CANVAS_W / 2, 38);
+  }
 
   ctx.fillStyle = "#9e9e9e";
   ctx.font = "9px 'Courier New'";
@@ -1316,7 +1492,9 @@ function render() {
   drawBackground();
   if (level) {
     drawWater();
+    for (const fish of level.fish)   drawFish(fish);
     for (const p of level.platforms) drawPlatform(p);
+    drawWinterGroundSnow();
     for (const b of level.questionBlocks) drawQuestionBlock(b);
     for (const p of level.pipes)     drawPipe(p);
     for (const c of level.coins)     drawCoin(c);
