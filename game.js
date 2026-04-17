@@ -851,6 +851,18 @@ const SEASON_SKY_TOP = ["#fce4ec", "#29b6f6", "#ffcc80", "#cfd8dc"];
 const SEASON_SKY_MID = ["#f8bbd0", "#4fc3f7", "#ffa726", "#90a4ae"];
 const SEASON_SKY_BOT = ["#90caf9", "#81d4fa", "#ffab91", "#eceff1"];
 const SEASON_HILL  = ["#66bb6a", "#43a047", "#8d6e63", "#b0bec5"];
+const STAGE_THEMES = [
+  { name: "Classic Plains", top: "#6ec6ff", mid: "#a5d6ff", bot: "#d7f0ff", cloud: "#ffffff", hill: "#66bb6a" },
+  { name: "Jungle", top: "#2e7d32", mid: "#43a047", bot: "#81c784", cloud: "#dcedc8", hill: "#2e7d32" },
+  { name: "Egypt Desert", top: "#ffca70", mid: "#ffb347", bot: "#ffe0a8", cloud: "#fff3cd", hill: "#c49a5a" },
+  { name: "Frozen World", top: "#b3e5fc", mid: "#81d4fa", bot: "#e1f5fe", cloud: "#f5fbff", hill: "#90caf9" },
+  { name: "Underwater", top: "#01579b", mid: "#0277bd", bot: "#4fc3f7", cloud: "#b3e5fc", hill: "#0288d1" },
+  { name: "Sunset Canyon", top: "#ff8a65", mid: "#ff7043", bot: "#ffccbc", cloud: "#ffe0b2", hill: "#8d6e63" },
+  { name: "Neon City", top: "#1a237e", mid: "#283593", bot: "#3949ab", cloud: "#c5cae9", hill: "#303f9f" },
+  { name: "Volcanic", top: "#4e342e", mid: "#5d4037", bot: "#8d6e63", cloud: "#d7ccc8", hill: "#3e2723" },
+  { name: "Sky Realm", top: "#90caf9", mid: "#bbdefb", bot: "#e3f2fd", cloud: "#ffffff", hill: "#64b5f6" },
+  { name: "Cosmic Night", top: "#0b1026", mid: "#1a237e", bot: "#283593", cloud: "#9fa8da", hill: "#1c2b5a" },
+];
 
 function drawSeasonalLayers(seasonIndex, blend) {
   const next = (seasonIndex + 1) % 4;
@@ -1008,19 +1020,126 @@ function drawWinterGroundSnow() {
   ctx.globalAlpha = 1;
 }
 
-function drawBackground() {
-  const { index, blend } = getSeasonProgress();
-  drawSeasonalLayers(index, blend);
+function getStageThemeIndex() {
+  return Math.min(STAGE_THEMES.length - 1, Math.max(0, state.flagsPassed));
+}
 
-  const next = (index + 1) % 4;
-  const cloudHex = index === 3
-    ? lerpColor("#e3eaf2", "#ffffff", blend)
-    : next === 3
-    ? lerpColor("#ffffff", "#e3eaf2", blend)
-    : "#ffffff";
+function drawThemeDecor(themeIndex) {
+  if (themeIndex === 1) {
+    // Jungle vines
+    ctx.strokeStyle = "rgba(27,94,32,0.8)";
+    ctx.lineWidth = 4;
+    for (let i = 0; i < 6; i++) {
+      const x = ((i * 170 - camX * 0.3 + 1800) % (CANVAS_W + 120)) - 60;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.bezierCurveTo(x + 20, 120, x - 18, 240, x + 12, 340);
+      ctx.stroke();
+    }
+  } else if (themeIndex === 2) {
+    // Egypt pyramids
+    ctx.fillStyle = "#d4a25f";
+    for (let i = 0; i < 3; i++) {
+      const bx = ((i * 320 - camX * 0.35 + 1500) % (CANVAS_W + 240)) - 120;
+      const by = GROUND_Y - 35;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + 90, by - 130);
+      ctx.lineTo(bx + 180, by);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#b8864a";
+      ctx.beginPath();
+      ctx.moveTo(bx + 90, by - 130);
+      ctx.lineTo(bx + 180, by);
+      ctx.lineTo(bx + 130, by);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#d4a25f";
+    }
+  } else if (themeIndex === 3) {
+    // Frozen mountains
+    for (let i = 0; i < 5; i++) {
+      const bx = ((i * 260 - camX * 0.5 + 2000) % (CANVAS_W + 200)) - 100;
+      const by = GROUND_Y - 20;
+      ctx.fillStyle = "#90a4ae";
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + 70, by - 120);
+      ctx.lineTo(bx + 140, by);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#eceff1";
+      ctx.beginPath();
+      ctx.moveTo(bx + 48, by - 40);
+      ctx.lineTo(bx + 70, by - 120);
+      ctx.lineTo(bx + 92, by - 40);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (themeIndex === 4) {
+    // Underwater bubbles and coral
+    ctx.fillStyle = "rgba(179,229,252,0.35)";
+    for (let i = 0; i < 36; i++) {
+      const x = ((i * 61 + camX * 0.4 + coinSpin * 24) % (CANVAS_W + 80)) - 20;
+      const y = ((i * 79 - coinSpin * 36) % (CANVAS_H + 120)) - 40;
+      const r = 2 + (i % 4);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#ff7043";
+    for (let i = 0; i < 7; i++) {
+      const x = ((i * 140 - camX * 0.45 + 1600) % (CANVAS_W + 120)) - 40;
+      const h = 18 + (i % 3) * 14;
+      ctx.fillRect(x, GROUND_Y - h, 8, h);
+      ctx.fillRect(x + 10, GROUND_Y - h * 0.8, 8, h * 0.8);
+    }
+  } else if (themeIndex === 6) {
+    // Neon city blocks
+    for (let i = 0; i < 8; i++) {
+      const x = ((i * 125 - camX * 0.55 + 2000) % (CANVAS_W + 140)) - 60;
+      const h = 70 + (i % 4) * 28;
+      ctx.fillStyle = "#1c2b6b";
+      ctx.fillRect(x, GROUND_Y - h, 60, h);
+      ctx.fillStyle = i % 2 === 0 ? "#00e5ff" : "#ff4081";
+      for (let w = 0; w < 4; w++) {
+        for (let r = 0; r < 4; r++) {
+          ctx.fillRect(x + 8 + w * 12, GROUND_Y - h + 8 + r * 14, 6, 8);
+        }
+      }
+    }
+  } else if (themeIndex === 7) {
+    // Volcanic embers
+    ctx.fillStyle = "rgba(255,87,34,0.7)";
+    for (let i = 0; i < 42; i++) {
+      const x = ((i * 53 - camX * 0.3 + coinSpin * 16) % (CANVAS_W + 70)) - 20;
+      const y = ((i * 67 - coinSpin * 20) % (CANVAS_H + 100)) - 30;
+      ctx.fillRect(x, y, 2, 2);
+    }
+  } else if (themeIndex === 9) {
+    // Cosmic stars
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    for (let i = 0; i < 90; i++) {
+      const x = (i * 97) % CANVAS_W;
+      const y = (i * 43 + Math.floor(camX * 0.04)) % (CANVAS_H - 80);
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+}
+
+function drawBackground() {
+  const stageThemeIndex = getStageThemeIndex();
+  const theme = STAGE_THEMES[stageThemeIndex];
+  const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  g.addColorStop(0, theme.top);
+  g.addColorStop(0.45, theme.mid);
+  g.addColorStop(1, theme.bot);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   // Parallax clouds
-  ctx.fillStyle = cloudHex;
+  ctx.fillStyle = theme.cloud;
   const clouds = [[120,70,50],[290,50,40],[480,80,55],[650,45,42],[780,65,38]];
   for (const [bx, by, r] of clouds) {
     const cx = ((bx - camX * 0.25 % (CANVAS_W + 200) + CANVAS_W + 200) % (CANVAS_W + 200)) - 100;
@@ -1031,9 +1150,8 @@ function drawBackground() {
     ctx.fill();
   }
 
-  // Parallax hills (seasonal greens / frost)
-  const hillCol = lerpColor(SEASON_HILL[index], SEASON_HILL[next], blend);
-  ctx.fillStyle = hillCol;
+  // Parallax hills
+  ctx.fillStyle = theme.hill;
   for (let h = 0; h < 8; h++) {
     const hx = ((h * 700 - camX * 0.45 + 5600) % 5600) - 200;
     const hr  = 100 + (h % 3) * 35;
@@ -1042,29 +1160,12 @@ function drawBackground() {
     ctx.fill();
   }
 
-  drawGroundTrees(index, blend);
-
-  const creep = player ? getCreepFactor() : 0;
-  if (creep > 0.02) {
-    ctx.save();
-    ctx.globalAlpha = 0.1 + creep * 0.12;
-    ctx.fillStyle = "#050510";
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.globalAlpha = 0.15 * creep;
-    ctx.fillStyle = "#200008";
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H * 0.5);
-    const fog = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-    fog.addColorStop(0, "rgba(0,0,0,0)");
-    fog.addColorStop(0.55, `rgba(10,5,20,${0.15 * creep})`);
-    fog.addColorStop(1, `rgba(0,0,0,${0.35 * creep})`);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = fog;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.globalAlpha = 0.04 * creep;
-    ctx.fillStyle = "#ff0000";
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.restore();
+  if (stageThemeIndex <= 1) {
+    // Keep trees for classic/jungle style stages.
+    const season = getSeasonProgress();
+    drawGroundTrees(season.index, season.blend);
   }
+  drawThemeDecor(stageThemeIndex);
 }
 
 function drawWater() {
