@@ -109,7 +109,7 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
   // Bonus underground stars: 10 pts each; max stars per layout matches game.js buildUndergroundBonus coinSpecs.
   const bonusStarTotal =
     7 + 7 + 7 + 8 + 7 + 8 + 8 + 9 + 7 + 9;
-  const bonusStarScoreMax = bonusStarTotal * 10;
+  const bonusStarScoreMax = bonusStarTotal * 100;
 
   // maxScore = coins + enemies + win clear + max time + max per-segment flag bonuses (9×500) + all bonus stars
   const maxScore =
