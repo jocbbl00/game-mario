@@ -1142,6 +1142,199 @@ function getStageThemeIndex() {
   return Math.min(STAGE_THEMES.length - 1, Math.max(0, state.flagsPassed));
 }
 
+// Parallax midground shapes (purely decorative). Egypt / stage 3 = cubist Picasso-inspired facets.
+function drawPicassoCubistDesertMidground() {
+  const p = camX * 0.26;
+  ctx.save();
+  ctx.globalAlpha = 0.88;
+  const palette = ["#1a237e", "#3949ab", "#c62828", "#e65100", "#f9a825", "#fdd835", "#4a148c", "#00695c"];
+  for (let k = 0; k < 11; k++) {
+    const ox = ((k * 210 - p + 3200) % 3800) - 280;
+    const oy = 35 + (k % 4) * 28;
+    const rot = 0.15 + (k % 5) * 0.12;
+    ctx.fillStyle = palette[k % palette.length];
+    ctx.beginPath();
+    ctx.moveTo(ox + Math.cos(rot) * 20, oy + Math.sin(rot) * 10);
+    ctx.lineTo(ox + 95 + k * 3, oy - 25 + (k % 2) * 15);
+    ctx.lineTo(ox + 130, oy + 95);
+    ctx.lineTo(ox + 15, oy + 110);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.28)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = "#ffcc80";
+  ctx.beginPath();
+  ctx.ellipse((180 - p * 0.4 % 200 + CANVAS_W) % CANVAS_W + 40, 108, 22, 28, 0.45, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#3e2723";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.fillStyle = "#212121";
+  ctx.beginPath();
+  ctx.ellipse((195 - p * 0.35 % 180 + CANVAS_W) % CANVAS_W + 50, 102, 4, 5, 0.3, 0, Math.PI * 2);
+  ctx.ellipse((215 - p * 0.35 % 180 + CANVAS_W) % CANVAS_W + 62, 100, 3, 4, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#5d4037";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo((200 - p * 0.35 % 180 + CANVAS_W) % CANVAS_W + 55, 125);
+  ctx.quadraticCurveTo((230 - p * 0.35 % 180 + CANVAS_W) % CANVAS_W + 80, 118, (260 - p * 0.35 % 180 + CANVAS_W) % CANVAS_W + 70, 135);
+  ctx.stroke();
+  ctx.fillStyle = "#c62828";
+  ctx.beginPath();
+  ctx.moveTo((380 - p * 0.5 % 300 + CANVAS_W) % CANVAS_W, 200);
+  ctx.lineTo((420 - p * 0.5 % 300 + CANVAS_W) % CANVAS_W, 165);
+  ctx.lineTo((450 - p * 0.5 % 300 + CANVAS_W) % CANVAS_W, 210);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Ground-line silhouettes when classic trees are off (stage 3+). Parallax only — no collision.
+function drawThemedGroundSilhouettes(themeIndex) {
+  const par = camX * 0.52;
+  const baseY = GROUND_Y;
+
+  if (themeIndex === 2) {
+    for (let i = 0; i < 9; i++) {
+      const sx = ((i * 230 - par + 2600) % 3000) - 150;
+      if (sx < -80 || sx > CANVAS_W + 80) continue;
+      ctx.fillStyle = "#4e342e";
+      ctx.fillRect(sx - 3, baseY - 55, 7, 55);
+      ctx.fillStyle = "#33691e";
+      ctx.beginPath();
+      ctx.arc(sx, baseY - 58, 28, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = "#1b5e20";
+      ctx.beginPath();
+      ctx.ellipse(sx - 12, baseY - 52, 16, 10, -0.4, 0, Math.PI * 2);
+      ctx.ellipse(sx + 14, baseY - 50, 18, 11, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (themeIndex === 3) {
+    for (let i = 0; i < 10; i++) {
+      const sx = ((i * 200 - par + 2400) % 2800) - 120;
+      if (sx < -60 || sx > CANVAS_W + 60) continue;
+      const h = 70 + (i % 4) * 22;
+      ctx.fillStyle = "#37474f";
+      ctx.beginPath();
+      ctx.moveTo(sx, baseY);
+      ctx.lineTo(sx + 35, baseY - h);
+      ctx.lineTo(sx + 70, baseY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(236,239,241,0.65)";
+      ctx.beginPath();
+      ctx.moveTo(sx + 22, baseY - h);
+      ctx.lineTo(sx + 35, baseY - h - 18);
+      ctx.lineTo(sx + 48, baseY - h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (themeIndex === 4) {
+    ctx.strokeStyle = "rgba(46,125,50,0.55)";
+    ctx.lineWidth = 5;
+    for (let i = 0; i < 14; i++) {
+      const sx = ((i * 95 - par * 1.1 + 1800) % 2200) - 100;
+      const ph = i * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(sx, baseY);
+      ctx.bezierCurveTo(sx + 12 + Math.sin(coinSpin + ph) * 8, baseY - 50, sx - 8, baseY - 100, sx + 5, baseY - 140);
+      ctx.stroke();
+    }
+  } else if (themeIndex === 5) {
+    for (let i = 0; i < 6; i++) {
+      const sx = ((i * 320 - par * 0.9 + 2000) % 2600) - 140;
+      const h = 90 + (i % 3) * 35;
+      ctx.fillStyle = i % 2 === 0 ? "#bf360c" : "#d84315";
+      ctx.beginPath();
+      ctx.moveTo(sx, baseY);
+      ctx.lineTo(sx + 40, baseY - h * 0.45);
+      ctx.lineTo(sx + 85, baseY - h);
+      ctx.lineTo(sx + 120, baseY - h * 0.5);
+      ctx.lineTo(sx + 160, baseY);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (themeIndex === 6) {
+    for (let i = 0; i < 10; i++) {
+      const sx = ((i * 150 - par + 1900) % 2400) - 100;
+      const h = 55 + (i % 5) * 18;
+      ctx.fillStyle = "#1a237e";
+      ctx.fillRect(sx, baseY - h, 14, h);
+      ctx.fillStyle = i % 2 === 0 ? "#00e5ff" : "#ff4081";
+      ctx.fillRect(sx + 2, baseY - h + 8, 10, 6);
+    }
+  } else if (themeIndex === 7) {
+    for (let i = 0; i < 8; i++) {
+      const sx = ((i * 260 - par + 2100) % 2500) - 130;
+      ctx.fillStyle = "#3e2723";
+      ctx.beginPath();
+      ctx.moveTo(sx, baseY);
+      ctx.lineTo(sx + 50, baseY - 45);
+      ctx.lineTo(sx + 100, baseY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,87,34,0.45)";
+      ctx.beginPath();
+      ctx.arc(sx + 50, baseY - 38, 12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (themeIndex === 8) {
+    for (let i = 0; i < 7; i++) {
+      const sx = ((i * 280 - par * 0.75 + 2200) % 2700) - 150;
+      const h = 65 + (i % 3) * 25;
+      ctx.fillStyle = "rgba(227,242,253,0.55)";
+      ctx.fillRect(sx, baseY - h, 40, h);
+      ctx.strokeStyle = "rgba(100,181,246,0.5)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx, baseY - h, 40, h);
+    }
+  } else if (themeIndex === 9) {
+    for (let i = 0; i < 12; i++) {
+      const sx = ((i * 140 - par + 2000) % 2600) - 100;
+      const t = coinSpin * 0.15 + i;
+      ctx.save();
+      ctx.translate(sx, baseY - 40);
+      ctx.rotate(t * 0.02);
+      ctx.fillStyle = `hsla(${(i * 30) % 360}, 45%, 55%, 0.45)`;
+      ctx.beginPath();
+      ctx.moveTo(0, 40);
+      ctx.lineTo(15, -20);
+      ctx.lineTo(-12, -15);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// Extra midground lines for early stages (behind trees).
+function drawStageMidgroundExtras(themeIndex) {
+  const p = camX * 0.35;
+  if (themeIndex === 0) {
+    ctx.fillStyle = "rgba(129,199,132,0.35)";
+    for (let i = 0; i < 5; i++) {
+      const hx = ((i * 420 - p + 2000) % 2400) - 200;
+      ctx.beginPath();
+      ctx.arc(hx, GROUND_Y + 20, 80 + i * 15, Math.PI, 0);
+      ctx.fill();
+    }
+  } else if (themeIndex === 1) {
+    ctx.fillStyle = "rgba(46,125,50,0.25)";
+    for (let i = 0; i < 6; i++) {
+      const x = ((i * 300 - p + 1800) % 2600) - 150;
+      ctx.beginPath();
+      ctx.ellipse(x, 120 + i * 8, 90, 35, 0.2 + i * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
 function drawThemeDecor(themeIndex) {
   if (themeIndex === 1) {
     // Jungle vines
@@ -1155,26 +1348,7 @@ function drawThemeDecor(themeIndex) {
       ctx.stroke();
     }
   } else if (themeIndex === 2) {
-    // Egypt pyramids
-    ctx.fillStyle = "#d4a25f";
-    for (let i = 0; i < 3; i++) {
-      const bx = ((i * 320 - camX * 0.35 + 1500) % (CANVAS_W + 240)) - 120;
-      const by = GROUND_Y - 35;
-      ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(bx + 90, by - 130);
-      ctx.lineTo(bx + 180, by);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#b8864a";
-      ctx.beginPath();
-      ctx.moveTo(bx + 90, by - 130);
-      ctx.lineTo(bx + 180, by);
-      ctx.lineTo(bx + 130, by);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#d4a25f";
-    }
+    drawPicassoCubistDesertMidground();
   } else if (themeIndex === 3) {
     // Frozen mountains
     for (let i = 0; i < 5; i++) {
@@ -1235,6 +1409,29 @@ function drawThemeDecor(themeIndex) {
       const y = ((i * 67 - coinSpin * 20) % (CANVAS_H + 100)) - 30;
       ctx.fillRect(x, y, 2, 2);
     }
+  } else if (themeIndex === 5) {
+    const p = camX * 0.2;
+    ctx.fillStyle = "rgba(255,183,77,0.35)";
+    ctx.beginPath();
+    ctx.arc(((400 - p) % (CANVAS_W + 80)) - 20, 55, 48, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,213,79,0.2)";
+    ctx.lineWidth = 4;
+    for (let r = 1; r <= 4; r++) {
+      ctx.beginPath();
+      ctx.arc(((400 - p) % (CANVAS_W + 80)) + 20, 55, 20 + r * 22, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else if (themeIndex === 8) {
+    const p = camX * 0.18;
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    for (let i = 0; i < 5; i++) {
+      const cx = ((i * 220 - p + 1600) % 2000) - 100;
+      const cy = 60 + i * 25;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 55, 22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   } else if (themeIndex === 9) {
     // Cosmic stars
     ctx.fillStyle = "rgba(255,255,255,0.9)";
@@ -1294,9 +1491,11 @@ function drawBackground() {
     }
   }
 
+  drawStageMidgroundExtras(stageThemeIndex);
   if (stageThemeIndex <= 1) {
-    // Keep trees for classic/jungle style stages.
     drawGroundTrees(season.index, season.blend);
+  } else {
+    drawThemedGroundSilhouettes(stageThemeIndex);
   }
   drawThemeDecor(stageThemeIndex);
   drawSeasonalParticles(season.index, season.blend);
