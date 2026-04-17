@@ -4,12 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Mario Runner</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="wrapper">
     <div id="game-area">
-      <canvas id="gameCanvas" width="800" height="560"></canvas>
+      <canvas id="gameCanvas" width="800" height="560" tabindex="0" aria-label="Mario Runner game"></canvas>
     </div>
     <div id="sidebar">
       <div id="leaderboard-box">
@@ -45,6 +46,7 @@
           <div class="ctrl-hint-row"><span class="hint-ico">?</span> Bump from below</div>
           <div class="ctrl-hint-row"><span class="hint-ico">+</span> Stomp +200 · Coins +100</div>
           <div class="ctrl-hint-row"><span class="hint-ico hint-flag">Win</span> Reach flag</div>
+          <div class="ctrl-hint-row ctrl-hint-pipe"><span class="hint-ico pipe-ico">&#9612;</span> Brown pipe + <kbd class="kbd-inline">S</kbd> / <kbd class="kbd-inline">&#9660;</kbd> underground bonus</div>
           <div class="ctrl-tester">Shift+G+O end run (save score)</div>
         </div>
       </div>

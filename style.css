@@ -209,6 +209,23 @@ canvas {
   border-radius: 3px;
 }
 
+#controls-box kbd.kbd-inline {
+  min-width: 22px;
+  height: 22px;
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+.ctrl-hint-pipe {
+  align-items: flex-start;
+}
+
+.hint-ico.pipe-ico {
+  color: #a1887f;
+  font-size: 9px;
+  min-width: 14px;
+}
+
 .hint-ico.hint-flag {
   font-size: 7px;
   letter-spacing: -0.5px;

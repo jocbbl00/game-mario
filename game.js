@@ -47,6 +47,11 @@ try {
 // ============================================================
 const canvas = document.getElementById("gameCanvas");
 const ctx    = canvas.getContext("2d");
+canvas.addEventListener("pointerdown", () => {
+  try {
+    canvas.focus({ preventScroll: true });
+  } catch (_) {}
+});
 
 // ============================================================
 // SEEDED PRNG  (xorshift32)
@@ -415,6 +420,7 @@ function tryPipeWarpEnter() {
   if (state.layer !== "surface" || !level || !player) return;
   if (performance.now() < pipeWarpLockUntil) return;
   if (state.pipeWarpAnim) return;
+  if (keys["ShiftLeft"] || keys["ShiftRight"]) return;
   if (!keys["ArrowDown"] && !keys["KeyS"]) return;
   for (const pipe of level.pipes) {
     if (!pipe.warpDown) continue;
@@ -706,6 +712,20 @@ function skipTesterForward500() {
   camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, WORLD_W - CANVAS_W));
 }
 
+/** Leftmost solid ground tile in this stage segment (surface world). */
+function findFirstGroundTileInSegment(seg) {
+  if (!level || !level.groundSet) return seg * LEVEL_SEG_W;
+  const xMin = seg * LEVEL_SEG_W;
+  const xMax = Math.min((seg + 1) * LEVEL_SEG_W, WORLD_W);
+  for (let tx = Math.floor(xMin / TILE) * TILE; tx < xMax; tx += TILE) {
+    if (level.groundSet.has(tx)) return tx;
+  }
+  for (let tx = Math.floor(xMin / TILE) * TILE; tx < WORLD_W; tx += TILE) {
+    if (level.groundSet.has(tx)) return tx;
+  }
+  return Math.max(0, Math.floor(xMin / TILE) * TILE);
+}
+
 function jumpToTestStage(stage1to10) {
   if (!player || state.phase !== "playing") return;
   const n = Math.floor(stage1to10);
@@ -724,28 +744,18 @@ function jumpToTestStage(stage1to10) {
   if (!level || level.undergroundWidth) return;
 
   state.flagsPassed = seg;
-  let nx = Math.min(seg * LEVEL_SEG_W + 80, WORLD_W - player.w);
-  const tileX = Math.floor(nx / TILE) * TILE;
-  let tx = tileX;
-  if (!level.groundSet.has(tx)) {
-    let found = false;
-    for (let d = 0; d < 80; d++) {
-      const a = tileX + d * TILE;
-      const b = tileX - d * TILE;
-      if (a < WORLD_W && level.groundSet.has(a)) { tx = a; found = true; break; }
-      if (b >= 0 && level.groundSet.has(b)) { tx = b; found = true; break; }
-    }
-    if (!found) tx = Math.max(0, tileX);
-  }
+  const tx = findFirstGroundTileInSegment(seg);
   player.x = Math.min(tx + 6, WORLD_W - player.w);
   player.y = GROUND_Y - PLAYER_H;
   player.vx = 0;
   player.vy = 0;
   player.onGround = true;
   player.maxX = Math.max(80, player.x);
-  camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, WORLD_W - CANVAS_W));
+  camX = Math.max(0, Math.min(seg * LEVEL_SEG_W, WORLD_W - CANVAS_W));
   pipeWarpLockUntil = performance.now() + 500;
+  state.score += 2000;
   addPopup(CANVAS_W / 2, 100, `STAGE ${n}`);
+  addPopup(CANVAS_W / 2, 128, "+2000");
 }
 
 function createPlayer() {
@@ -801,9 +811,9 @@ window.addEventListener("keydown", e => {
   }
   if (!e.repeat && e.shiftKey && state.phase === "playing") {
     let stage = null;
-    if (keys["KeyS"]) {
-      stage = parseTestStageKeyCode(e.code);
-    } else if (e.code === "KeyS") {
+    const fromDigit = parseTestStageKeyCode(e.code);
+    if (fromDigit != null && keys["KeyS"]) stage = fromDigit;
+    else if (e.code === "KeyS") {
       for (let i = 0; i <= 9; i++) {
         const dc = "Digit" + i;
         const nc = "Numpad" + i;
@@ -821,7 +831,7 @@ window.addEventListener("keydown", e => {
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
   if (state.phase === "start" && (e.code === "Space" || e.code === "Enter")) startGame();
   if ((state.phase === "done" || state.phase === "gameover") && (e.code === "Enter" || e.code === "Space")) resetToStart();
-});
+}, true);
 window.addEventListener("keyup", e => { keys[e.code] = false; });
 
 // Touch controls
@@ -2626,28 +2636,31 @@ function drawStart() {
 
   ctx.fillStyle = "#e63946";
   ctx.font = "bold 18px 'Courier New'";
-  ctx.fillText("SECURE LEADERBOARD EDITION", CANVAS_W / 2, 210);
+  ctx.fillText("presented by Guru Yarin", CANVAS_W / 2, 210);
 
   ctx.fillStyle = "#ccc";
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
   ctx.fillText("10 stages · ~20k units · final flag wins  +2500", CANVAS_W / 2, 305);
   ctx.fillText("? blocks: bump from below  mushroom  A = fire", CANVAS_W / 2, 335);
+  ctx.fillStyle = "#bcaaa4";
+  ctx.font = "14px 'Courier New'";
+  ctx.fillText("Brown pipe: stand on top + S or down to enter underground bonus", CANVAS_W / 2, 358);
 
   ctx.fillStyle = "#a5d6a7";
   ctx.font = "13px 'Courier New'";
   if (isMobile) {
-    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 362);
-    ctx.fillText("Fire needs ? mushroom", CANVAS_W / 2, 382);
+    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 372);
+    ctx.fillText("Fire needs ? mushroom", CANVAS_W / 2, 392);
   } else {
-    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 362);
-    ctx.fillText("\u2191 and W also jump · fire after ? mushroom", CANVAS_W / 2, 382);
+    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 384);
+    ctx.fillText("\u2191 and W also jump · fire after ? mushroom", CANVAS_W / 2, 404);
   }
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
     ctx.fillStyle = "#ffd700";
     ctx.font = "bold 22px 'Courier New'";
-    ctx.fillText(isMobile ? "TAP TO START" : "PRESS SPACE TO START", CANVAS_W / 2, 420);
+    ctx.fillText(isMobile ? "TAP TO START" : "PRESS SPACE TO START", CANVAS_W / 2, 430);
   }
 }
 
@@ -2878,6 +2891,11 @@ async function startGame() {
   keys["Space"] = false;
   keys["KeyA"]  = false;
   state.phase          = "playing";
+  requestAnimationFrame(() => {
+    try {
+      canvas.focus({ preventScroll: true });
+    } catch (_) {}
+  });
 }
 
 function resetToStart() {
