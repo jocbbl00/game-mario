@@ -274,6 +274,28 @@ function markWarpPipes(lv) {
   }
 }
 
+/**
+ * Vertical rise (px) from one normal jump, matching update() (per frame: vy += GRAVITY*mult, y += vy).
+ * Used to cap bonus-room exit climb vs pipe mouth.
+ */
+function maxJumpRisePx(jumpVy0, gravityMult) {
+  let vy = jumpVy0;
+  let y = 0;
+  let minY = 0;
+  for (let i = 0; i < 400; i++) {
+    vy += GRAVITY * gravityMult;
+    y += vy;
+    if (y < minY) minY = y;
+    if (vy > 0 && i > 3) break;
+  }
+  return -minY;
+}
+
+/** Worst-case gravity mult (last stage) so exit gap fits any segment. */
+const BONUS_WORST_GRAVITY_MULT = 1 + (NUM_LEVELS - 1) * 0.016;
+/** Max distance (px) from ceiling (pipe y=0) to last climb brick top: 85% of Mario's jump apex. */
+const BONUS_EXIT_MAX_STAND_TOP_Y = Math.floor(maxJumpRisePx(JUMP_FORCE, BONUS_WORST_GRAVITY_MULT) * 0.85);
+
 /** Each surface stage (0–9) has a distinct bonus room. `dy` = pixels above ground for platform top / coin height. */
 function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
   const groundSet = new Set();
@@ -295,9 +317,24 @@ function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
     const bw = b[2];
     const bx = b[0];
     const dy = b[1];
+    const bh = b[3] != null ? b[3] : TILE;
     const right = bx + bw;
     if (!exitBrick || right > exitBrick.right || (right === exitBrick.right && dy > exitBrick.dy)) {
-      exitBrick = { x: bx, w: bw, dy, right };
+      exitBrick = { x: bx, w: bw, dy, right, h: bh };
+    }
+  }
+  if (exitBrick) {
+    const naturalTop = GROUND_Y - exitBrick.dy;
+    if (naturalTop > BONUS_EXIT_MAX_STAND_TOP_Y) {
+      const clampedTop = BONUS_EXIT_MAX_STAND_TOP_Y;
+      for (const p of platforms) {
+        if (p.type !== "brick") continue;
+        if (p.x !== exitBrick.x || p.w !== exitBrick.w || p.h !== exitBrick.h) continue;
+        if (Math.abs(p.y - naturalTop) > 0.5) continue;
+        p.y = clampedTop;
+        exitBrick.dy = GROUND_Y - clampedTop;
+        break;
+      }
     }
   }
   let exitX = exitBrick
