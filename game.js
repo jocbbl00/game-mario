@@ -370,6 +370,7 @@ window.addEventListener("keydown", e => {
   keys[e.code] = true;
   if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyJ"]) {
     autoPilot = !autoPilot;
+    if (autoPilot && state.phase === "playing") state.lives = 999;
     e.preventDefault();
   }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
@@ -953,11 +954,23 @@ const STAGE_THEMES = [
   { name: "Cosmic Night", top: "#0b1026", mid: "#1a237e", bot: "#283593", cloud: "#9fa8da", hill: "#1c2b5a" },
 ];
 
-// Sun, petals, maple leaves, snow — drawn on top of stage theme sky.
+// Fade in/out at start/end of each season so effects never overlap between seasons.
+function seasonParticleEdgeAlpha(blend) {
+  const fin = 0.14;
+  const fout = 0.14;
+  let a = 1;
+  if (blend < fin) a = blend / fin;
+  if (blend > 1 - fout) a = Math.min(a, (1 - blend) / fout);
+  return Math.max(0, Math.min(1, a));
+}
+
+// Sun, petals, maple leaves, snow — exactly one season at a time (no cross-fade overlap).
 function drawSeasonalParticles(seasonIndex, blend) {
-  // Summer sun (fade in from late spring; full in summer)
-  if (seasonIndex === 1 || (seasonIndex === 0 && blend > 0.62)) {
-    const sunA = seasonIndex === 1 ? 1 : (blend - 0.62) / 0.38;
+  const edge = seasonParticleEdgeAlpha(blend);
+
+  // Summer sun — only summer segment
+  if (seasonIndex === 1) {
+    const sunA = edge;
     if (sunA > 0.04) {
       ctx.globalAlpha = Math.min(1, sunA);
       ctx.fillStyle = "#fff9c4";
@@ -972,10 +985,9 @@ function drawSeasonalParticles(seasonIndex, blend) {
     }
   }
 
-  // Spring: drifting sakura petals
-  if (seasonIndex === 0 || (seasonIndex === 3 && blend > 0.85)) {
-    const petalAlpha = seasonIndex === 0 ? 1 : (1 - blend) * 6;
-    ctx.globalAlpha = Math.min(1, petalAlpha);
+  // Spring: drifting sakura petals — only spring
+  if (seasonIndex === 0) {
+    ctx.globalAlpha = edge;
     for (let i = 0; i < 78; i++) {
       const flow = coinSpin * 26 + camX * 0.2;
       const px = ((i * 67 + camX * 0.45 + flow) % (CANVAS_W + 100)) - 35;
@@ -996,10 +1008,9 @@ function drawSeasonalParticles(seasonIndex, blend) {
     ctx.globalAlpha = 1;
   }
 
-  // Fall: flying maple leaves
-  if (seasonIndex === 2 || (seasonIndex === 1 && blend > 0.75) || (seasonIndex === 2 && blend < 0.2)) {
-    const leafA = seasonIndex === 2 ? 1 : 0.55;
-    ctx.globalAlpha = leafA;
+  // Fall: flying maple leaves — only fall
+  if (seasonIndex === 2) {
+    ctx.globalAlpha = edge;
     for (let i = 0; i < 56; i++) {
       const drift = Math.sin(coinSpin * 0.85 + i * 0.31) * 18;
       const px = ((i * 89 - camX * 0.58 + coinSpin * 22) % (CANVAS_W + 90)) - 45;
@@ -1030,10 +1041,9 @@ function drawSeasonalParticles(seasonIndex, blend) {
     ctx.globalAlpha = 1;
   }
 
-  // Winter: heavy snow
-  if (seasonIndex === 3 || (seasonIndex === 2 && blend > 0.75)) {
-    const snowA = seasonIndex === 3 ? 1 : (blend - 0.75) / 0.25;
-    ctx.globalAlpha = Math.min(1, snowA);
+  // Winter: heavy snow — only winter
+  if (seasonIndex === 3) {
+    ctx.globalAlpha = edge;
     for (let i = 0; i < 140; i++) {
       const px = ((i * 47 + camX * 0.72 + coinSpin * 40) % (CANVAS_W + 45)) - 18;
       const py = ((i * 61 + coinSpin * 58 + camX * 0.14) % (CANVAS_H + 55)) - 28;
@@ -1648,8 +1658,13 @@ function drawHUD() {
   ctx.fillStyle = "#e63946";
   ctx.font = "20px Arial";
   ctx.textAlign = "right";
-  for (let i = 0; i < state.lives; i++) {
-    ctx.fillText("♥", CANVAS_W - 10 - i * 22, 22);
+  if (autoPilot) {
+    ctx.font = "bold 22px Arial";
+    ctx.fillText("\u221e", CANVAS_W - 10, 22);
+  } else {
+    for (let i = 0; i < state.lives; i++) {
+      ctx.fillText("♥", CANVAS_W - 10 - i * 22, 22);
+    }
   }
 }
 
@@ -1927,7 +1942,7 @@ async function startGame() {
   coinSpin = 0;
 
   state.score          = 0;
-  state.lives          = 3;
+  state.lives          = autoPilot ? 999 : 3;
   state.coinsCollected = 0;
   state.enemiesDefeated = 0;
   state.won            = false;
