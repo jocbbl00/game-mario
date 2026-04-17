@@ -124,7 +124,7 @@ function generateLevel(seed) {
       out.enemies.push({
         x: px + TILE, y: py - TILE + 4,
         w: TILE - 6, h: TILE - 6,
-        vx: 1.4 * (dirRoll > 0.5 ? 1 : -1),
+        vx: 1.4 * (0.3 + 1.7 * (px / WORLD_W)) * (dirRoll > 0.5 ? 1 : -1),
         minX: px, maxX: px + pw,
         alive: true, squished: false, squishTimer: 0,
       });
@@ -159,7 +159,7 @@ function generateLevel(seed) {
     out.enemies.push({
       x: ex, y: GROUND_Y - TILE + 4,
       w: TILE - 6, h: TILE - 6,
-      vx: 1.2 * (dirRoll > 0.5 ? 1 : -1),
+      vx: 1.2 * (0.3 + 1.7 * (ex / WORLD_W)) * (dirRoll > 0.5 ? 1 : -1),
       minX: 0, maxX: WORLD_W,
       alive: true, squished: false, squishTimer: 0,
       groundBound: true,
@@ -201,7 +201,7 @@ function generateLevel(seed) {
         w: 22, h: 20,
         alive: true,
         jumping: false,
-        jumpTimer: 40 + (Math.floor(x / TILE) * 17) % 100,
+        jumpTimer: Math.round(160 - 120 * (x / WORLD_W)) + (Math.floor(x / TILE) * 17) % 40,
       });
     }
   }
@@ -702,7 +702,8 @@ function update(dt) {
 
     if (!f.jumping) {
       if (--f.jumpTimer <= 0) {
-        f.vy = -11 * Math.sqrt(gMult);   // compensate gravity so height stays consistent
+        const df = f.x / WORLD_W;                         // 0 at start, 1 at end
+        f.vy = -(3.5 + 9.5 * df) * Math.sqrt(gMult);     // slow near start, fast near end
         f.jumping = true;
       }
       continue;
@@ -715,7 +716,8 @@ function update(dt) {
       f.y = f.baseY;
       f.vy = 0;
       f.jumping = false;
-      f.jumpTimer = 80 + (Math.floor(f.x / 7) % 90);
+      const df2 = f.x / WORLD_W;
+      f.jumpTimer = Math.round(140 - 110 * df2) + (Math.floor(f.x / 7) % 35);
     }
 
     // Collide only while visible above water
@@ -1139,38 +1141,55 @@ function drawFish(f) {
   if (sx < -40 || sx > CANVAS_W + 40) return;
 
   const cx = sx;
-  const cy = f.y + f.h * 0.5;  // centre of fish body
+  const cy = f.y + f.h * 0.5;
+  const r  = f.w * 0.46;
 
-  // Body
-  ctx.fillStyle = "#f57c00";
+  // Pufferfish body
+  ctx.fillStyle = "#c8e6c9";
   ctx.beginPath();
-  ctx.ellipse(cx, cy, f.w * 0.5, f.h * 0.42, 0, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fill();
 
-  // Belly highlight
-  ctx.fillStyle = "#ffcc80";
+  // Belly (lighter)
+  ctx.fillStyle = "#e8f5e9";
   ctx.beginPath();
-  ctx.ellipse(cx + 2, cy + 2, f.w * 0.24, f.h * 0.19, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + r * 0.2, r * 0.55, r * 0.45, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Tail (right side)
-  ctx.fillStyle = "#e65100";
-  ctx.beginPath();
-  ctx.moveTo(cx + f.w * 0.44, cy);
-  ctx.lineTo(cx + f.w * 0.44 + 9, cy - 7);
-  ctx.lineTo(cx + f.w * 0.44 + 9, cy + 7);
-  ctx.closePath();
-  ctx.fill();
+  // Spikes (10 around the body)
+  ctx.fillStyle = "#558b2f";
+  const N = 10;
+  for (let s = 0; s < N; s++) {
+    const a = (s / N) * Math.PI * 2;
+    const a1 = a - 0.18, a2 = a + 0.18;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+    ctx.lineTo(cx + Math.cos(a)  * (r + 7), cy + Math.sin(a)  * (r + 7));
+    ctx.lineTo(cx + Math.cos(a2) * r, cy + Math.sin(a2) * r);
+    ctx.closePath();
+    ctx.fill();
+  }
 
-  // Eye (left, fish faces left)
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.arc(cx - f.w * 0.2, cy - 2, 2.5, 0, Math.PI * 2);
-  ctx.fill();
+  // Dark spots
+  ctx.fillStyle = "#33691e";
+  ctx.beginPath(); ctx.arc(cx - r * 0.28, cy - r * 0.18, 3,   0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * 0.1,  cy + r * 0.28, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * 0.38, cy - r * 0.08, 2,   0, Math.PI * 2); ctx.fill();
+
+  // Eye
   ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(cx + r * 0.48, cy - r * 0.08, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.beginPath(); ctx.arc(cx + r * 0.48 + 0.6, cy - r * 0.08, 2.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(cx + r * 0.48 + 1.4, cy - r * 0.08 - 1.2, 1, 0, Math.PI * 2); ctx.fill();
+
+  // Tiny mouth
+  ctx.strokeStyle = "#1b5e20";
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(cx - f.w * 0.2 + 0.8, cy - 2.8, 1, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.arc(cx + r * 0.8, cy + r * 0.12, 3, 0.2, Math.PI - 0.2);
+  ctx.stroke();
 }
 
 function drawFireball(f) {
