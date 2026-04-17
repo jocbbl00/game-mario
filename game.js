@@ -291,10 +291,11 @@ function maxJumpRisePx(jumpVy0, gravityMult) {
   return -minY;
 }
 
-/** Worst-case gravity mult (last stage) so exit gap fits any segment. */
-const BONUS_WORST_GRAVITY_MULT = 1 + (NUM_LEVELS - 1) * 0.016;
-/** Max distance (px) from ceiling (pipe y=0) to last climb brick top: 85% of Mario's jump apex. */
-const BONUS_EXIT_MAX_STAND_TOP_Y = Math.floor(maxJumpRisePx(JUMP_FORCE, BONUS_WORST_GRAVITY_MULT) * 0.85);
+/** Normal small-Mario jump apex (px) at base gravity — defines bonus exit vertical gap vs pipe. */
+const NORMAL_JUMP_RISE_PX = maxJumpRisePx(JUMP_FORCE, 1);
+/** Distance (px) from ceiling (pipe y=0) to last climb brick top: 30%–70% of that jump (no mushroom). */
+const BONUS_EXIT_GAP_MIN_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.3);
+const BONUS_EXIT_GAP_MAX_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.7);
 
 /** Each surface stage (0–9) has a distinct bonus room. `dy` = pixels above ground for platform top / coin height. */
 function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
@@ -325,8 +326,10 @@ function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
   }
   if (exitBrick) {
     const naturalTop = GROUND_Y - exitBrick.dy;
-    if (naturalTop > BONUS_EXIT_MAX_STAND_TOP_Y) {
-      const clampedTop = BONUS_EXIT_MAX_STAND_TOP_Y;
+    let clampedTop = naturalTop;
+    if (clampedTop < BONUS_EXIT_GAP_MIN_Y) clampedTop = BONUS_EXIT_GAP_MIN_Y;
+    if (clampedTop > BONUS_EXIT_GAP_MAX_Y) clampedTop = BONUS_EXIT_GAP_MAX_Y;
+    if (Math.abs(clampedTop - naturalTop) > 0.5) {
       for (const p of platforms) {
         if (p.type !== "brick") continue;
         if (p.x !== exitBrick.x || p.w !== exitBrick.w || p.h !== exitBrick.h) continue;
