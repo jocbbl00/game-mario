@@ -201,7 +201,7 @@ function generateLevel(seed) {
         w: 22, h: 20,
         alive: true,
         jumping: false,
-        jumpTimer: Math.round(170 - 150 * Math.pow(x / WORLD_W, 3)) + (Math.floor(x / TILE) * 17) % 40,
+        jumpTimer: Math.round(300 - 280 * Math.pow(x / WORLD_W, 3)) + (Math.floor(x / TILE) * 17) % 40,
       });
     }
   }
@@ -704,7 +704,7 @@ function update(dt) {
       if (--f.jumpTimer <= 0) {
         const df  = f.x / WORLD_W;                        // 0 at start, 1 at end
         const df3 = df * df * df;                         // cubic: stays slow until far
-        f.vy = -(3.5 + 8.5 * df3);                       // -3.5 near start → -12 near end
+        f.vy = -(6 + 6 * df3);                            // -6 near start (high, slow) → -12 near end
         f.jumping = true;
       }
       continue;
@@ -719,7 +719,7 @@ function update(dt) {
       f.jumping = false;
       const df2  = f.x / WORLD_W;
       const df23 = df2 * df2 * df2;   // cubic: long waits near start, short near end
-      f.jumpTimer = Math.round(170 - 150 * df23) + (Math.floor(f.x / 7) % 35);
+      f.jumpTimer = Math.round(300 - 280 * df23) + (Math.floor(f.x / 7) % 35);
     }
 
     // Collide only while visible above water
