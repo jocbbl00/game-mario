@@ -25,6 +25,7 @@ const JUMP_POWER_SEC = 5;
 const SUPER_JUMP_FORCE = -20;          // green mushroom: higher jump
 const RESPAWN_INVINCIBLE_MS = 3000;
 const SEASON_DURATION_SEC = 10;
+const UNDERGROUND_BONUS_W = 1280;
 
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
@@ -210,6 +211,124 @@ function generateLevel(seed) {
   return out;
 }
 
+function getWorldWidth() {
+  if (level && level.undergroundWidth) return level.undergroundWidth;
+  return WORLD_W;
+}
+
+// One dark blue warp pipe per stage segment (no extra RNG — post-pass only).
+function markWarpPipes(lv) {
+  for (const p of lv.pipes) p.warpDown = false;
+  for (let seg = 0; seg < NUM_LEVELS; seg++) {
+    const minX = seg * LEVEL_SEG_W + 700;
+    const maxX = (seg + 1) * LEVEL_SEG_W - 900;
+    const inSeg = lv.pipes.filter(p => p.x >= minX && p.x <= maxX);
+    if (inSeg.length === 0) continue;
+    inSeg.sort((a, b) => a.x - b.x);
+    inSeg[0].warpDown = true;
+  }
+}
+
+function buildUndergroundBonus() {
+  const UW = UNDERGROUND_BONUS_W;
+  const groundSet = new Set();
+  const platforms = [];
+  for (let x = 0; x < UW; x += TILE) {
+    groundSet.add(x);
+    platforms.push({ x, y: GROUND_Y, w: TILE, h: TILE * 3, type: "ground" });
+  }
+  platforms.push({ x: 260, y: GROUND_Y - 100, w: 200, h: TILE, type: "brick" });
+  platforms.push({ x: 520, y: GROUND_Y - 155, w: 120, h: TILE, type: "brick" });
+  platforms.push({ x: 700, y: GROUND_Y - 115, w: 160, h: TILE, type: "brick" });
+  const pipeh = TILE * 3;
+  const exitX = UW - TILE * 2 - 40;
+  const pipes = [{
+    x: exitX,
+    y: GROUND_Y - pipeh,
+    w: TILE * 2,
+    h: pipeh + TILE * 3,
+    warpUp: true,
+  }];
+  const coins = [
+    { x: 340, y: GROUND_Y - 130, r: false, bonusOnly: true },
+    { x: 560, y: GROUND_Y - 185, r: false, bonusOnly: true },
+    { x: 780, y: GROUND_Y - 145, r: false, bonusOnly: true },
+  ];
+  return {
+    platforms,
+    coins,
+    enemies: [],
+    pipes,
+    questionBlocks: [],
+    mushrooms: [],
+    fish: [],
+    groundSet,
+    coinCount: 0,
+    enemyCount: 0,
+    undergroundWidth: UW,
+    isUnderground: true,
+  };
+}
+
+function enterUnderground(fromPipe) {
+  if (performance.now() < pipeWarpLockUntil) return;
+  surfaceLevelRef = level;
+  surfaceSave = { camX, pipe: fromPipe };
+  level = buildUndergroundBonus();
+  player.x = 70;
+  player.y = GROUND_Y - PLAYER_H;
+  player.vx = 0;
+  player.vy = 0;
+  camX = 0;
+  fireballs = [];
+  state.layer = "underground";
+  pipeWarpLockUntil = performance.now() + 500;
+  addPopup(CANVAS_W / 2, 100, "BONUS ROOM");
+}
+
+function exitUnderground() {
+  if (performance.now() < pipeWarpLockUntil || !surfaceSave) return;
+  level = surfaceLevelRef;
+  surfaceLevelRef = null;
+  const p = surfaceSave.pipe;
+  player.x = p.x + p.w / 2 - player.w / 2;
+  player.y = p.y - player.h;
+  player.vx = 0;
+  player.vy = 0;
+  camX = Math.max(0, Math.min(surfaceSave.camX, WORLD_W - CANVAS_W));
+  surfaceSave = null;
+  state.layer = "surface";
+  pipeWarpLockUntil = performance.now() + 500;
+}
+
+function tryPipeWarpEnter() {
+  if (state.layer !== "surface" || !level || !player) return;
+  if (performance.now() < pipeWarpLockUntil) return;
+  if (!keys["ArrowDown"] && !keys["KeyS"]) return;
+  for (const pipe of level.pipes) {
+    if (!pipe.warpDown) continue;
+    if (!player.onGround) continue;
+    const feet = player.y + player.h;
+    if (Math.abs(feet - pipe.y) > 10) continue;
+    const hc = player.x + player.w / 2;
+    if (hc < pipe.x + 10 || hc > pipe.x + pipe.w - 10) continue;
+    enterUnderground(pipe);
+    return;
+  }
+}
+
+function tryPipeWarpExit() {
+  if (state.layer !== "underground" || !level || !player) return;
+  if (performance.now() < pipeWarpLockUntil) return;
+  if (!keys["ArrowUp"] && !keys["KeyW"] && !keys["Space"]) return;
+  for (const pipe of level.pipes) {
+    if (!pipe.warpUp) continue;
+    if (!overlap(player.x, player.y, player.w, player.h, pipe.x - 4, GROUND_Y - 50, pipe.w + 8, 50)) continue;
+    exitUnderground();
+    return;
+  }
+}
+
 // ============================================================
 // PATH SAFETY — post-processing, no RNG consumed.
 // Guarantees the player can always progress forward by:
@@ -324,6 +443,8 @@ const state = {
   playerName    : "",
   popups        : [],   // floating score text
   flagsPassed   : 0,    // checkpoints cleared (0..10); win at 10
+  layer         : "surface", // surface | underground (bonus room)
+  bonusStars    : 0,    // decorative pickups in bonus (not sent to leaderboard math)
 };
 
 let level   = null;
@@ -339,6 +460,9 @@ let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
 let autoPilotLastX = 0;
 let autoPilotNoMoveAccum = 0;
+let surfaceLevelRef = null;
+let surfaceSave     = null;
+let pipeWarpLockUntil = 0;
 
 function createPlayer() {
   return {
@@ -385,6 +509,7 @@ function setupTouchControls() {
   const btnRight = document.getElementById("touch-right");
   const btnJump  = document.getElementById("touch-jump");
   const btnFire  = document.getElementById("touch-fire");
+  const btnDown  = document.getElementById("touch-down");
 
   function bindBtn(el, key) {
     el.addEventListener("touchstart", e => {
@@ -401,6 +526,7 @@ function setupTouchControls() {
   bindBtn(btnRight, "ArrowRight");
   bindBtn(btnJump,  "Space");
   if (btnFire) bindBtn(btnFire, "KeyA");
+  if (btnDown) bindBtn(btnDown, "ArrowDown");
 }
 
 // Tap canvas to start / restart on touch devices
@@ -570,8 +696,9 @@ function update(dt) {
   if (player.vy >  18) player.vy =  18;
   player.x += player.vx;
   player.y += player.vy;
+  const ww = getWorldWidth();
   if (player.x < 0) player.x = 0;
-  if (player.x > WORLD_W - player.w) player.x = WORLD_W - player.w;
+  if (player.x > ww - player.w) player.x = ww - player.w;
 
   // --- Fall death (pit ignores i-frames unless autopilot test mode) ---
   if (player.y > CANVAS_H + 80) {
@@ -608,8 +735,8 @@ function update(dt) {
     autoPilotJumpCooldown = 0.4;
   }
 
-  // --- Track furthest-right for respawn ---
-  if (player.x > player.maxX) player.maxX = player.x;
+  // --- Track furthest-right for respawn (surface only) ---
+  if (state.layer === "surface" && player.x > player.maxX) player.maxX = player.x;
 
   if (player.firePower && player.firePowerTimer > 0) {
     player.firePowerTimer -= dt;
@@ -687,7 +814,7 @@ function update(dt) {
         break;
       }
     }
-    if (wall || f.x < -20 || f.x > WORLD_W) {
+    if (wall || f.x < -20 || f.x > getWorldWidth()) {
       fireballs.splice(i, 1);
       continue;
     }
@@ -712,9 +839,14 @@ function update(dt) {
     if (c.r) continue;
     if (overlap(player.x, player.y, player.w, player.h, c.x - 10, c.y - 10, 20, 20)) {
       c.r = true;
-      state.coinsCollected++;
-      state.score += 100;
-      addPopup(c.x - camX, c.y, "+100");
+      if (c.bonusOnly) {
+        state.bonusStars++;
+        addPopup(c.x - camX, c.y, "\u2605 BONUS");
+      } else {
+        state.coinsCollected++;
+        state.score += 100;
+        addPopup(c.x - camX, c.y, "+100");
+      }
     }
   }
 
@@ -774,7 +906,7 @@ function update(dt) {
 
     if (!f.jumping) {
       if (--f.jumpTimer <= 0) {
-        const df  = f.x / WORLD_W;                        // 0 at start, 1 at end
+        const df  = f.x / getWorldWidth();                        // 0 at start, 1 at end
         const df3 = df * df * df;                         // cubic: stays slow until far
         f.vy = -(6 + 6 * df3);                            // -6 near start (high, slow) → -12 near end
         f.jumping = true;
@@ -789,7 +921,7 @@ function update(dt) {
       f.y = f.baseY;
       f.vy = 0;
       f.jumping = false;
-      const df2  = f.x / WORLD_W;
+      const df2  = f.x / getWorldWidth();
       const df23 = df2 * df2 * df2;   // cubic: long waits near start, short near end
       f.jumpTimer = Math.round(300 - 280 * df23) + (Math.floor(f.x / 7) % 35);
     }
@@ -813,19 +945,24 @@ function update(dt) {
   }
 
   // --- Flags: one per segment; 10th flag wins (~20k world) ---
-  const nextFlagX = (state.flagsPassed + 1) * LEVEL_SEG_W - 320;
-  if (player.x + player.w >= nextFlagX) {
-    state.flagsPassed++;
-    if (state.flagsPassed >= NUM_LEVELS) {
-      winGame();
-      return;
+  if (state.layer === "surface") {
+    const nextFlagX = (state.flagsPassed + 1) * LEVEL_SEG_W - 320;
+    if (player.x + player.w >= nextFlagX) {
+      state.flagsPassed++;
+      if (state.flagsPassed >= NUM_LEVELS) {
+        winGame();
+        return;
+      }
+      state.score += 500;
+      addPopup(CANVAS_W / 2, 100, `LEVEL ${state.flagsPassed + 1}`);
     }
-    state.score += 500;
-    addPopup(CANVAS_W / 2, 100, `LEVEL ${state.flagsPassed + 1}`);
   }
 
   // --- Camera ---
-  camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, WORLD_W - CANVAS_W));
+  {
+    const wmax = getWorldWidth();
+    camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, wmax - CANVAS_W));
+  }
 
   // --- Popups ---
   for (let i = state.popups.length - 1; i >= 0; i--) {
@@ -843,6 +980,9 @@ function update(dt) {
       autoPilotNoMoveAccum = 0;
     }
   }
+
+  tryPipeWarpEnter();
+  tryPipeWarpExit();
 }
 
 function damagePlayer(pitFall = false) {
@@ -854,16 +994,29 @@ function damagePlayer(pitFall = false) {
     state.phase = "gameover";
     submitScore();
   } else {
-    player.x         = Math.max(80, player.maxX - 200);
-    player.y         = GROUND_Y - PLAYER_H;
-    player.vx        = 0;
-    player.vy        = 0;
-    player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
-    player.firePower  = false;
-    player.firePowerTimer = 0;
-    player.jumpPower  = false;
-    player.jumpPowerTimer = 0;
-    fireballs         = [];
+    if (state.layer === "underground") {
+      player.x = 70;
+      player.y = GROUND_Y - PLAYER_H;
+      player.vx = 0;
+      player.vy = 0;
+      player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
+      player.firePower  = false;
+      player.firePowerTimer = 0;
+      player.jumpPower  = false;
+      player.jumpPowerTimer = 0;
+      fireballs         = [];
+    } else {
+      player.x         = Math.max(80, player.maxX - 200);
+      player.y         = GROUND_Y - PLAYER_H;
+      player.vx        = 0;
+      player.vy        = 0;
+      player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
+      player.firePower  = false;
+      player.firePowerTimer = 0;
+      player.jumpPower  = false;
+      player.jumpPowerTimer = 0;
+      fireballs         = [];
+    }
   }
 }
 
@@ -1125,6 +1278,7 @@ function drawGroundTrees(seasonIndex, blend) {
 
 // Snow cap on top of every visible ground/brick tile — drawn after platforms.
 function drawWinterGroundSnow() {
+  if (state.layer === "underground") return;
   const { index, blend } = getSeasonProgress();
   if (index !== 3 && !(index === 2 && blend > 0.7)) return;
   const alpha = index === 3 ? 0.82 : (blend - 0.7) / 0.3 * 0.82;
@@ -1444,6 +1598,21 @@ function drawThemeDecor(themeIndex) {
 }
 
 function drawBackground() {
+  if (state.layer === "underground") {
+    const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    g.addColorStop(0, "#1a237e");
+    g.addColorStop(0.5, "#0d1642");
+    g.addColorStop(1, "#030508");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = "rgba(255,255,255,0.035)";
+    for (let i = 0; i < 28; i++) {
+      for (let j = 0; j < 18; j++) {
+        ctx.fillRect(i * 38 + (j % 4) * 5, j * 34, 30, 3);
+      }
+    }
+    return;
+  }
   const stageThemeIndex = getStageThemeIndex();
   const season = getSeasonProgress();
   const theme = STAGE_THEMES[stageThemeIndex];
@@ -1502,6 +1671,7 @@ function drawBackground() {
 }
 
 function drawWater() {
+  if (state.layer === "underground") return;
   for (let x = 0; x < WORLD_W; x += TILE) {
     if (level.groundSet.has(x)) continue;
     const sx = x - camX;
@@ -1669,6 +1839,16 @@ function drawPlatform(p) {
 function drawPipe(pipe) {
   const sx = pipe.x - camX;
   if (sx + pipe.w < 0 || sx > CANVAS_W) return;
+  if (pipe.warpDown || pipe.warpUp) {
+    ctx.fillStyle = "#1565c0";
+    ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
+    ctx.fillStyle = "#0d47a1";
+    ctx.fillRect(sx, pipe.y, pipe.w, TILE);
+    ctx.fillStyle = "#082f5c";
+    ctx.fillRect(sx + 4, pipe.y, 8, TILE);
+    ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
+    return;
+  }
   ctx.fillStyle = "#2e7d32";
   ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
   ctx.fillStyle = "#388e3c";
@@ -1687,11 +1867,11 @@ function drawCoin(c) {
   ctx.translate(sx, c.y);
   ctx.scale(scale, 1);
   ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
-  ctx.fillStyle = "#ffd700"; ctx.fill();
+  ctx.fillStyle = c.bonusOnly ? "#b3e5fc" : "#ffd700"; ctx.fill();
   ctx.strokeStyle = "#e65100"; ctx.lineWidth = 2; ctx.stroke();
-  ctx.fillStyle = "#e65100"; ctx.font = "bold 9px Arial";
+  ctx.fillStyle = c.bonusOnly ? "#0277bd" : "#e65100"; ctx.font = "bold 9px Arial";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("$", 0, 1);
+  ctx.fillText(c.bonusOnly ? "\u2605" : "$", 0, 1);
   ctx.restore();
 }
 
@@ -1782,6 +1962,7 @@ function drawPlayer() {
 }
 
 function drawFlag() {
+  if (state.layer === "underground") return;
   for (let k = 0; k < NUM_LEVELS; k++) {
     const fx = (k + 1) * LEVEL_SEG_W - 320;
     const sx = fx - camX;
@@ -1807,7 +1988,7 @@ function drawFlag() {
 
 function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillRect(0, 0, CANVAS_W, 52);
+  ctx.fillRect(0, 0, CANVAS_W, 56);
 
   ctx.fillStyle = "#fff";
   ctx.font = "bold 16px 'Courier New'";
@@ -1840,7 +2021,17 @@ function drawHUD() {
   ctx.fillStyle = "#9e9e9e";
   ctx.font = "9px 'Courier New'";
   ctx.textAlign = "center";
-  ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 48);
+  if (state.layer === "underground") {
+    ctx.fillText("BONUS   [ \u2191 ] exit pipe    [ \u2190 ] [ \u2192 ] move    [ Space ] jump", CANVAS_W / 2, 44);
+    ctx.fillStyle = "#90caf9";
+    ctx.font = "9px 'Courier New'";
+    ctx.fillText(`Stars ${state.bonusStars}/3`, CANVAS_W / 2, 52);
+  } else {
+    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 44);
+    ctx.fillStyle = "#78909c";
+    ctx.font = "8px 'Courier New'";
+    ctx.fillText("Dark blue pipe: stand on top + [ \u2193 ] bonus", CANVAS_W / 2, 52);
+  }
 
   ctx.fillStyle = "#9ccc65";
   ctx.font = "bold 11px 'Courier New'";
@@ -2136,6 +2327,7 @@ async function startGame() {
   state.levelSeed    = seed;
 
   level  = generateLevel(seed);
+  markWarpPipes(level);
   player = createPlayer();
   camX   = 0;
   coinSpin = 0;
@@ -2149,6 +2341,10 @@ async function startGame() {
   state.playTimeMs     = 0;
   state.popups         = [];
   state.flagsPassed    = 0;
+  state.layer          = "surface";
+  state.bonusStars     = 0;
+  surfaceLevelRef      = null;
+  surfaceSave          = null;
   fireballs            = [];
   autoPilotLastX       = 80;
   autoPilotNoMoveAccum = 0;

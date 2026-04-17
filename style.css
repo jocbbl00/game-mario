@@ -211,8 +211,24 @@ canvas {
   left: 16px;
   bottom: 20px;
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   pointer-events: all;
+}
+
+.touch-row {
+  display: flex;
+  gap: 10px;
+}
+
+.touch-down-btn {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+  background: rgba(13, 71, 161, 0.35);
+  border-color: rgba(100, 181, 246, 0.55);
+  color: #90caf9;
 }
 
 .touch-zone-right {
