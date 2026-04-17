@@ -450,12 +450,12 @@ function tryPipeWarpExit() {
   if (state.pipeWarpAnim) return;
   for (const pipe of level.pipes) {
     if (!pipe.warpUp || !pipe.ceilingExit) continue;
-    const mouthX = pipe.x + 10;
-    const mouthW = pipe.w - 20;
-    const mouthY = pipe.y;
-    const mouthH = TILE + 6;
-    if (!overlap(player.x, player.y, player.w, player.h, mouthX, mouthY, mouthW, mouthH)) continue;
-    if (player.vy >= -0.28) continue;
+    const touchX = pipe.x + 2;
+    const touchW = pipe.w - 4;
+    const touchY = pipe.y;
+    const touchH = Math.min(TILE * 5 + 8, Math.max(TILE * 2, pipe.h - 24));
+    if (!overlap(player.x, player.y, player.w, player.h, touchX, touchY, touchW, touchH)) continue;
+    if (player.vy > 2) continue;
     state.pipeWarpAnim = {
       kind: "up",
       elapsed: 0,
@@ -662,7 +662,7 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
-/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit. */
+/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit; Shift+S+1–9/0 jumps to stage 1–10. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
@@ -706,6 +706,48 @@ function skipTesterForward500() {
   camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, WORLD_W - CANVAS_W));
 }
 
+function jumpToTestStage(stage1to10) {
+  if (!player || state.phase !== "playing") return;
+  const n = Math.floor(stage1to10);
+  if (n < 1 || n > NUM_LEVELS) return;
+  const seg = n - 1;
+
+  state.pipeWarpAnim = null;
+  if (state.layer === "underground") {
+    if (!surfaceLevelRef) return;
+    level = surfaceLevelRef;
+    surfaceLevelRef = null;
+    surfaceSave = null;
+    state.layer = "surface";
+    fireballs = [];
+  }
+  if (!level || level.undergroundWidth) return;
+
+  state.flagsPassed = seg;
+  let nx = Math.min(seg * LEVEL_SEG_W + 80, WORLD_W - player.w);
+  const tileX = Math.floor(nx / TILE) * TILE;
+  let tx = tileX;
+  if (!level.groundSet.has(tx)) {
+    let found = false;
+    for (let d = 0; d < 80; d++) {
+      const a = tileX + d * TILE;
+      const b = tileX - d * TILE;
+      if (a < WORLD_W && level.groundSet.has(a)) { tx = a; found = true; break; }
+      if (b >= 0 && level.groundSet.has(b)) { tx = b; found = true; break; }
+    }
+    if (!found) tx = Math.max(0, tileX);
+  }
+  player.x = Math.min(tx + 6, WORLD_W - player.w);
+  player.y = GROUND_Y - PLAYER_H;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = true;
+  player.maxX = Math.max(80, player.x);
+  camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, WORLD_W - CANVAS_W));
+  pipeWarpLockUntil = performance.now() + 500;
+  addPopup(CANVAS_W / 2, 100, `STAGE ${n}`);
+}
+
 function createPlayer() {
   return {
     x: 80, y: GROUND_Y - PLAYER_H,
@@ -745,6 +787,14 @@ window.addEventListener("keydown", e => {
   if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
     skipTesterForward500();
     e.preventDefault();
+  }
+  if (!e.repeat && e.shiftKey && keys["KeyS"] && e.code.startsWith("Digit")) {
+    const d = e.code.slice(5);
+    const stage = d === "0" ? 10 : parseInt(d, 10);
+    if (stage >= 1 && stage <= NUM_LEVELS) {
+      jumpToTestStage(stage);
+      e.preventDefault();
+    }
   }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
   if (state.phase === "start" && (e.code === "Space" || e.code === "Enter")) startGame();
