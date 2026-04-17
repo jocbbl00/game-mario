@@ -325,9 +325,17 @@ function maxJumpRisePx(jumpVy0, gravityMult) {
 
 /** Normal small-Mario jump apex (px) at base gravity — defines bonus exit vertical gap vs pipe. */
 const NORMAL_JUMP_RISE_PX = maxJumpRisePx(JUMP_FORCE, 1);
-/** Distance (px) from ceiling (pipe y=0) to last climb brick top: 30%–70% of that jump (no mushroom). */
+/** Vertical gap (px) from pipe bottom to last climb brick top: 30%–80% of that jump; keeps brick detached from pipe. */
 const BONUS_EXIT_GAP_MIN_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.3);
-const BONUS_EXIT_GAP_MAX_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.7);
+const BONUS_EXIT_GAP_MAX_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.8);
+
+function bonusExitBrickGapPx(segment) {
+  const lo = BONUS_EXIT_GAP_MIN_Y;
+  const hi = BONUS_EXIT_GAP_MAX_Y;
+  if (hi <= lo) return lo;
+  const u = det01(77331, segment, 12);
+  return lo + Math.floor(u * (hi - lo));
+}
 
 /** Each surface stage (0–9) has a distinct bonus room. `dy` = pixels above ground for platform top / coin height. */
 function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
@@ -345,6 +353,8 @@ function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
     brick(b[0], GROUND_Y - b[1], b[2], h);
   }
   const pipeW = TILE * 2;
+  const exitPipeH = stemLen + TILE * 2;
+
   let exitBrick = null;
   for (const b of brickSpecs) {
     const bw = b[2];
@@ -356,27 +366,25 @@ function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
       exitBrick = { x: bx, w: bw, dy, right, h: bh };
     }
   }
+
+  const exitX = Math.floor(Math.max(TILE, uw - pipeW - 8));
+
   if (exitBrick) {
+    const gapPx = bonusExitBrickGapPx(segment);
+    const brickTopY = exitPipeH + gapPx;
+    const pipeCx = exitX + pipeW / 2;
+    let bx = Math.floor((pipeCx - exitBrick.w / 2) / TILE) * TILE;
+    bx = Math.max(0, Math.min(bx, uw - exitBrick.w));
     const naturalTop = GROUND_Y - exitBrick.dy;
-    let clampedTop = naturalTop;
-    if (clampedTop < BONUS_EXIT_GAP_MIN_Y) clampedTop = BONUS_EXIT_GAP_MIN_Y;
-    if (clampedTop > BONUS_EXIT_GAP_MAX_Y) clampedTop = BONUS_EXIT_GAP_MAX_Y;
-    if (Math.abs(clampedTop - naturalTop) > 0.5) {
-      for (const p of platforms) {
-        if (p.type !== "brick") continue;
-        if (p.x !== exitBrick.x || p.w !== exitBrick.w || p.h !== exitBrick.h) continue;
-        if (Math.abs(p.y - naturalTop) > 0.5) continue;
-        p.y = clampedTop;
-        exitBrick.dy = GROUND_Y - clampedTop;
-        break;
-      }
+    for (const p of platforms) {
+      if (p.type !== "brick") continue;
+      if (p.x !== exitBrick.x || p.w !== exitBrick.w || p.h !== exitBrick.h) continue;
+      if (Math.abs(p.y - naturalTop) > 0.5) continue;
+      p.x = bx;
+      p.y = brickTopY;
+      break;
     }
   }
-  let exitX = exitBrick
-    ? exitBrick.x + (exitBrick.w - pipeW) / 2
-    : uw - TILE * 2 - 60;
-  exitX = Math.floor(Math.max(8, Math.min(exitX, uw - pipeW - 8)));
-  const exitPipeH = stemLen + TILE * 2;
   brick(exitX, TILE, 8, stemLen + TILE);
   brick(exitX + pipeW - 8, TILE, 8, stemLen + TILE);
   const pipes = [{
