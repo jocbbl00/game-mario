@@ -437,12 +437,14 @@ function tryPipeWarpExit() {
   if (state.pipeWarpAnim) return;
   for (const pipe of level.pipes) {
     if (!pipe.warpUp || !pipe.ceilingExit) continue;
-    const mouthX = pipe.x + 10;
-    const mouthW = pipe.w - 20;
-    const mouthY = pipe.y;
-    const mouthH = TILE + 6;
-    if (!overlap(player.x, player.y, player.w, player.h, mouthX, mouthY, mouthW, mouthH)) continue;
-    if (player.vy >= -0.28) continue;
+    // Generous “upper pipe” zone: lip + upper stem — no need to thread the mouth perfectly.
+    const touchX = pipe.x - 18;
+    const touchW = pipe.w + 36;
+    const touchY = pipe.y;
+    const touchH = Math.min(pipe.h * 0.55, TILE * 4 + 20);
+    if (!overlap(player.x, player.y, player.w, player.h, touchX, touchY, touchW, touchH)) continue;
+    if (player.onGround && player.vy >= 0) continue;
+    if (player.vy > 5) continue;
     state.pipeWarpAnim = {
       kind: "up",
       elapsed: 0,
@@ -2456,7 +2458,7 @@ function drawHUD() {
   ctx.textAlign = "center";
   if (state.layer === "underground") {
     const br = level && level.bonusSegment != null ? level.bonusSegment + 1 : "?";
-    ctx.fillText(`BONUS ${br}/10   jump into red pipe lip (up) to exit    [ \u2190 ] [ \u2192 ]    [ Space ]`, CANVAS_W / 2, 44);
+    ctx.fillText(`BONUS ${br}/10   touch upper red pipe (jump) to exit    [ \u2190 ] [ \u2192 ]    [ Space ]`, CANVAS_W / 2, 44);
     ctx.fillStyle = "#90caf9";
     ctx.font = "9px 'Courier New'";
     const cap = level && level.bonusStarTotal != null ? level.bonusStarTotal : 3;
