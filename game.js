@@ -552,8 +552,25 @@ function update(dt) {
   if (player.x < 0) player.x = 0;
   if (player.x > WORLD_W - player.w) player.x = WORLD_W - player.w;
 
-  // --- Fall death (pit ignores i-frames so you can still lose a life in a hole) ---
-  if (player.y > CANVAS_H + 80) { damagePlayer(true); return; }
+  // --- Fall death (pit ignores i-frames unless autopilot test mode) ---
+  if (player.y > CANVAS_H + 80) {
+    if (autoPilot) {
+      player.vy = 0;
+      let gx = Math.floor(player.x / TILE) * TILE;
+      if (!level.groundSet.has(gx)) {
+        for (let s = 0; s < 400; s++) {
+          gx -= TILE;
+          if (gx < 0) { gx = 0; break; }
+          if (level.groundSet.has(gx)) break;
+        }
+      }
+      player.x = Math.max(0, gx);
+      player.y = GROUND_Y - PLAYER_H;
+      player.onGround = true;
+    } else {
+      damagePlayer(true); return;
+    }
+  }
 
   // --- Platform + pipe + ? blocks ---
   player.onGround = false;
@@ -712,7 +729,6 @@ function update(dt) {
     if (e.x <= e.minX)          { e.x = e.minX;          e.vx =  Math.abs(e.vx); }
     if (e.x + e.w >= e.maxX)    { e.x = e.maxX - e.w;    e.vx = -Math.abs(e.vx); }
 
-    if (performance.now() < player.invincibleUntilMs) continue;
     if (!overlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h)) continue;
 
     // Stomp check: player falling + player bottom near enemy top
@@ -724,6 +740,7 @@ function update(dt) {
       state.score += 200;
       addPopup(e.x - camX, e.y - 20, "+200");
     } else {
+      if (autoPilot || performance.now() < player.invincibleUntilMs) continue;
       damagePlayer();
       return;
     }
@@ -757,7 +774,7 @@ function update(dt) {
     }
 
     // Collide only while visible above water
-    if (f.y < f.baseY && performance.now() >= player.invincibleUntilMs) {
+    if (f.y < f.baseY) {
       if (!overlap(player.x, player.y, player.w, player.h, f.x - f.w / 2, f.y, f.w, f.h)) continue;
       if (player.vy > 0 && player.y + player.h < f.y + f.h * 0.5) {
         f.alive = false;
@@ -766,6 +783,8 @@ function update(dt) {
         state.score += 200;
         addPopup(f.x - camX, f.y - 20, "+200");
       } else {
+        if (autoPilot) continue;
+        if (performance.now() < player.invincibleUntilMs) continue;
         damagePlayer();
         return;
       }
@@ -796,6 +815,7 @@ function update(dt) {
 }
 
 function damagePlayer(pitFall = false) {
+  if (autoPilot) return;
   if (!pitFall && performance.now() < player.invincibleUntilMs) return;
   state.lives--;
   if (state.lives <= 0) {
@@ -880,10 +900,6 @@ function getSeasonProgress() {
   return { index, blend, t };
 }
 
-const SEASON_SKY_TOP = ["#fce4ec", "#29b6f6", "#ffcc80", "#cfd8dc"];
-const SEASON_SKY_MID = ["#f8bbd0", "#4fc3f7", "#ffa726", "#90a4ae"];
-const SEASON_SKY_BOT = ["#90caf9", "#81d4fa", "#ffab91", "#eceff1"];
-const SEASON_HILL  = ["#66bb6a", "#43a047", "#8d6e63", "#b0bec5"];
 const STAGE_THEMES = [
   { name: "Classic Plains", top: "#6ec6ff", mid: "#a5d6ff", bot: "#d7f0ff", cloud: "#ffffff", hill: "#66bb6a" },
   { name: "Jungle", top: "#2e7d32", mid: "#43a047", bot: "#81c784", cloud: "#dcedc8", hill: "#2e7d32" },
@@ -897,19 +913,8 @@ const STAGE_THEMES = [
   { name: "Cosmic Night", top: "#0b1026", mid: "#1a237e", bot: "#283593", cloud: "#9fa8da", hill: "#1c2b5a" },
 ];
 
-function drawSeasonalLayers(seasonIndex, blend) {
-  const next = (seasonIndex + 1) % 4;
-  const top = lerpColor(SEASON_SKY_TOP[seasonIndex], SEASON_SKY_TOP[next], blend);
-  const mid = lerpColor(SEASON_SKY_MID[seasonIndex], SEASON_SKY_MID[next], blend);
-  const bot = lerpColor(SEASON_SKY_BOT[seasonIndex], SEASON_SKY_BOT[next], blend);
-
-  const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-  g.addColorStop(0, top);
-  g.addColorStop(0.45, mid);
-  g.addColorStop(1, bot);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
+// Sun, petals, maple leaves, snow — drawn on top of stage theme sky.
+function drawSeasonalParticles(seasonIndex, blend) {
   // Summer sun (fade in from late spring; full in summer)
   if (seasonIndex === 1 || (seasonIndex === 0 && blend > 0.62)) {
     const sunA = seasonIndex === 1 ? 1 : (blend - 0.62) / 0.38;
@@ -927,53 +932,83 @@ function drawSeasonalLayers(seasonIndex, blend) {
     }
   }
 
-  // Spring: drifting sakura petals (trees drawn at ground level in drawGroundTrees)
+  // Spring: drifting sakura petals
   if (seasonIndex === 0 || (seasonIndex === 3 && blend > 0.85)) {
     const petalAlpha = seasonIndex === 0 ? 1 : (1 - blend) * 6;
     ctx.globalAlpha = Math.min(1, petalAlpha);
-    for (let i = 0; i < 35; i++) {
-      const px = ((i * 67 + camX * 0.4 + coinSpin * 18) % (CANVAS_W + 80)) - 20;
-      const py = 30 + ((i * 41 + coinSpin * 22 + camX * 0.15) % (CANVAS_H - 120));
-      ctx.fillStyle = "rgba(244, 143, 177, 0.55)";
+    for (let i = 0; i < 78; i++) {
+      const flow = coinSpin * 26 + camX * 0.2;
+      const px = ((i * 67 + camX * 0.45 + flow) % (CANVAS_W + 100)) - 35;
+      const py = 15 + ((i * 41 + coinSpin * 30 + camX * 0.2) % (CANVAS_H - 95));
+      ctx.fillStyle = "rgba(248, 187, 208, 0.72)";
       ctx.save();
       ctx.translate(px, py);
-      ctx.rotate(coinSpin * 0.3 + i * 0.2);
+      ctx.rotate(coinSpin * 0.38 + i * 0.16);
       ctx.beginPath();
-      ctx.ellipse(0, 0, 4, 2.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 5.5, 3.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(244, 143, 177, 0.45)";
+      ctx.beginPath();
+      ctx.ellipse(-2, 1, 2.5, 1.6, 0.4, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
     ctx.globalAlpha = 1;
   }
 
-  // Fall: drifting leaves
+  // Fall: flying maple leaves
   if (seasonIndex === 2 || (seasonIndex === 1 && blend > 0.75) || (seasonIndex === 2 && blend < 0.2)) {
-    const leafA = seasonIndex === 2 ? 1 : 0.5;
+    const leafA = seasonIndex === 2 ? 1 : 0.55;
     ctx.globalAlpha = leafA;
-    for (let i = 0; i < 28; i++) {
-      const px = ((i * 89 - camX * 0.5) % (CANVAS_W + 60)) - 30;
-      const py = 40 + ((i * 73 + coinSpin * 28 + camX * 0.25) % (CANVAS_H - 100));
-      const wobble = Math.sin(coinSpin + i) * 0.4;
+    for (let i = 0; i < 56; i++) {
+      const drift = Math.sin(coinSpin * 0.85 + i * 0.31) * 18;
+      const px = ((i * 89 - camX * 0.58 + coinSpin * 22) % (CANVAS_W + 90)) - 45;
+      const py = 25 + ((i * 73 + coinSpin * 34 + camX * 0.3) % (CANVAS_H - 85));
+      const wobble = Math.sin(coinSpin * 1.15 + i) * 0.55;
       ctx.save();
-      ctx.translate(px, py);
-      ctx.rotate(wobble + i * 0.7);
-      ctx.fillStyle = i % 3 === 0 ? "#e65100" : (i % 3 === 1 ? "#f57c00" : "#ff8f00");
-      ctx.fillRect(-5, -2, 10, 5);
+      ctx.translate(px + drift, py);
+      ctx.rotate(wobble + i * 0.68);
+      ctx.fillStyle = i % 3 === 0 ? "#b71c1c" : (i % 3 === 1 ? "#e65100" : "#ff9800");
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(2.5, -1);
+      ctx.lineTo(8, 0.5);
+      ctx.lineTo(2.5, 2.5);
+      ctx.lineTo(2, 8);
+      ctx.lineTo(0, 4.5);
+      ctx.lineTo(-2, 8);
+      ctx.lineTo(-2.5, 2.5);
+      ctx.lineTo(-8, 0.5);
+      ctx.lineTo(-2.5, -1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(121, 85, 72, 0.45)";
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
       ctx.restore();
     }
     ctx.globalAlpha = 1;
   }
 
-  // Winter: snow
+  // Winter: heavy snow
   if (seasonIndex === 3 || (seasonIndex === 2 && blend > 0.75)) {
     const snowA = seasonIndex === 3 ? 1 : (blend - 0.75) / 0.25;
     ctx.globalAlpha = Math.min(1, snowA);
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    for (let i = 0; i < 55; i++) {
-      const px = ((i * 47 + camX * 0.65 + coinSpin * 35) % (CANVAS_W + 30)) - 10;
-      const py = ((i * 61 + coinSpin * 52 + camX * 0.1) % (CANVAS_H + 40)) - 20;
-      ctx.fillRect(px, py, 2.5, 2.5);
-      ctx.fillRect(px + 1, py + 3, 1.5, 1.5);
+    for (let i = 0; i < 140; i++) {
+      const px = ((i * 47 + camX * 0.72 + coinSpin * 40) % (CANVAS_W + 45)) - 18;
+      const py = ((i * 61 + coinSpin * 58 + camX * 0.14) % (CANVAS_H + 55)) - 28;
+      const s = 1.1 + (i % 6) * 0.5;
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillRect(px, py, s * 2.2, s * 2.2);
+      ctx.fillRect(px + s * 0.6, py + s * 1.4, s * 1.1, s * 1.1);
+    }
+    for (let i = 0; i < 45; i++) {
+      const px = ((i * 59 + camX * 0.55 + coinSpin * 28) % (CANVAS_W + 35)) - 12;
+      const py = ((i * 67 + coinSpin * 44) % (CANVAS_H + 45)) - 22;
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.beginPath();
+      ctx.arc(px, py, 3 + (i % 4), 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
@@ -1163,6 +1198,7 @@ function drawThemeDecor(themeIndex) {
 
 function drawBackground() {
   const stageThemeIndex = getStageThemeIndex();
+  const season = getSeasonProgress();
   const theme = STAGE_THEMES[stageThemeIndex];
   const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
   g.addColorStop(0, theme.top);
@@ -1195,10 +1231,10 @@ function drawBackground() {
 
   if (stageThemeIndex <= 1) {
     // Keep trees for classic/jungle style stages.
-    const season = getSeasonProgress();
     drawGroundTrees(season.index, season.blend);
   }
   drawThemeDecor(stageThemeIndex);
+  drawSeasonalParticles(season.index, season.blend);
 }
 
 function drawWater() {
@@ -1421,7 +1457,7 @@ function drawEnemy(e) {
 
 function drawPlayer() {
   const sx = player.x - camX;
-  if (performance.now() < player.invincibleUntilMs && Math.floor(performance.now() / 80) % 2 === 0) return;
+  if (!autoPilot && performance.now() < player.invincibleUntilMs && Math.floor(performance.now() / 80) % 2 === 0) return;
 
   ctx.save();
   if (!player.facingRight) {
