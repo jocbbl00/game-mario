@@ -333,6 +333,9 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
+/** Secret test: Shift+J then O toggles. */
+let autoPilot = false;
+let autoPilotJumpCooldown = 0;
 
 function createPlayer() {
   return {
@@ -362,6 +365,10 @@ const isMobile = window.matchMedia("(hover: none) and (pointer: coarse)").matche
 
 window.addEventListener("keydown", e => {
   keys[e.code] = true;
+  if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyJ"]) {
+    autoPilot = !autoPilot;
+    e.preventDefault();
+  }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
   if (state.phase === "start" && (e.code === "Space" || e.code === "Enter")) startGame();
   if ((state.phase === "done" || state.phase === "gameover") && (e.code === "Enter" || e.code === "Space")) resetToStart();
@@ -483,6 +490,14 @@ function addPopup(x, y, text) {
   state.popups.push({ x, y, text, life: 60 });
 }
 
+function autoPilotShouldJumpGroundGap() {
+  if (!player || !level || !player.onGround) return false;
+  const footBottom = player.y + player.h;
+  if (footBottom < GROUND_Y - 6) return false;
+  const tileX = Math.floor((player.x + player.w + 2) / TILE) * TILE;
+  return level.groundSet.has(tileX - TILE) && !level.groundSet.has(tileX);
+}
+
 // ============================================================
 // UPDATE
 // ============================================================
@@ -494,18 +509,30 @@ function update(dt) {
   const spMult = getLevelSpeedMult();
   const gMult  = getGravityMult();
 
-  // --- Player input: ← → move, Space / ↑ / W jump, A fireball ---
-  if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED * spMult; player.facingRight = false; }
-  else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED * spMult;  player.facingRight = true;  }
-  else player.vx *= 0.75;
+  if (autoPilot) autoPilotJumpCooldown = Math.max(0, autoPilotJumpCooldown - dt);
 
-  if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
-    player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
-    player.onGround = false;
+  // --- Player input: ← → move, Space / ↑ / W jump, A fireball ---
+  if (autoPilot) {
+    player.facingRight = true;
+    player.vx = PLAYER_SPEED * spMult;
+    if (autoPilotJumpCooldown <= 0 && autoPilotShouldJumpGroundGap()) {
+      player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
+      player.onGround = false;
+      autoPilotJumpCooldown = 0.35;
+    }
+  } else {
+    if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED * spMult; player.facingRight = false; }
+    else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED * spMult;  player.facingRight = true;  }
+    else player.vx *= 0.75;
+
+    if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
+      player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
+      player.onGround = false;
+    }
   }
 
   if (player.fireCooldown > 0) player.fireCooldown--;
-  if (player.firePower && player.fireCooldown <= 0 && keys["KeyA"]) {
+  if (player.firePower && player.fireCooldown <= 0 && (keys["KeyA"] || (autoPilot && level.enemies.some(e => e.alive && !e.squished && e.x > player.x && e.x < player.x + 220)))) {
     player.fireCooldown = FIRE_COOLDOWN_FRAMES;
     const dir = player.facingRight ? 1 : -1;
     fireballs.push({
@@ -535,6 +562,12 @@ function update(dt) {
   resolveQuestionBlocks();
   for (const qb of level.questionBlocks) {
     if (qb.bumpTimer > 0) qb.bumpTimer--;
+  }
+
+  if (autoPilot && player.onGround && autoPilotJumpCooldown <= 0 && Math.abs(player.vx) < 0.5) {
+    player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
+    player.onGround = false;
+    autoPilotJumpCooldown = 0.4;
   }
 
   // --- Track furthest-right for respawn ---
@@ -1513,6 +1546,13 @@ function drawHUD() {
   ctx.font = "bold 11px 'Courier New'";
   ctx.textAlign = "right";
   ctx.fillText(`STAGE ${state.flagsPassed + 1}/${NUM_LEVELS}`, CANVAS_W - 10, 40);
+
+  if (autoPilot) {
+    ctx.fillStyle = "#ff5252";
+    ctx.font = "bold 10px 'Courier New'";
+    ctx.textAlign = "left";
+    ctx.fillText("[AUTO]", 10, 50);
+  }
 
   ctx.fillStyle = "#e63946";
   ctx.font = "20px Arial";
