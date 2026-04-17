@@ -195,9 +195,13 @@ function generateLevel(seed) {
 
   ensurePassablePath(out);
 
+  addLateStageBrickPlatforms(out, seed);
+
   // --- FISH (jump from water gaps; no RNG consumed — deterministic placement) ---
   for (let x = TILE * 20; x < WORLD_W - TILE * 15; x += TILE) {
-    if (!out.groundSet.has(x) && Math.floor(x / TILE) % 2 === 0) {
+    if (!out.groundSet.has(x)) {
+      const seg = Math.floor(x / LEVEL_SEG_W);
+      if (seg < 6 && Math.floor(x / TILE) % 2 !== 0) continue;
       out.fish.push({
         x: x + TILE / 2,
         baseY: GROUND_Y,
@@ -212,6 +216,41 @@ function generateLevel(seed) {
   }
 
   return out;
+}
+
+function det01(seed, a, b) {
+  let h = Math.imul((seed ^ (a * 374761393)) >>> 0, 2654435761) ^ Math.imul((b * 668265263) >>> 0, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h >>> 0) % 1000000) / 1000000;
+}
+
+/** Stages 7–10 only: extra narrow brick platforms (deterministic, no extra RNG — server score unchanged). */
+function addLateStageBrickPlatforms(out, seed) {
+  const SEG_MIN = 6;
+  for (let seg = SEG_MIN; seg < NUM_LEVELS; seg++) {
+    const minX = seg * LEVEL_SEG_W + 420;
+    const maxX = (seg + 1) * LEVEL_SEG_W - 520;
+    const count = 16 + seg * 2;
+    for (let i = 0; i < count; i++) {
+      const t = det01(seed, seg * 1999 + 7, i * 131);
+      const rawX = minX + Math.floor(t * (maxX - minX - 240));
+      const px = Math.floor(rawX / TILE) * TILE;
+      const pyBand = det01(seed, seg * 541 + 3, i * 17);
+      const py = GROUND_Y - 78 - Math.floor(pyBand * 165);
+      const pwTiles = 2 + Math.floor(det01(seed, seg + 400, i * 91) * 3);
+      const pw = pwTiles * TILE;
+      let ok = true;
+      for (const pipe of out.pipes) {
+        if (overlap(px, py, pw, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (const q of out.questionBlocks) {
+        if (overlap(px, py, pw, TILE, q.x, q.y, q.w, q.h)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      out.platforms.push({ x: px, y: py, w: pw, h: TILE, type: "brick" });
+    }
+  }
 }
 
 function getWorldWidth() {
@@ -563,7 +602,7 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
-/** Secret test: Shift+J then O toggles autopilot. Shift+J+O+N skips +500px on surface. */
+/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+F+D game over + score submit. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
@@ -572,6 +611,14 @@ let autoPilotNoMoveAccum = 0;
 let surfaceLevelRef = null;
 let surfaceSave     = null;
 let pipeWarpLockUntil = 0;
+
+function forceGameOverSubmit() {
+  if (state.phase !== "playing") return;
+  state.lives = 0;
+  state.playTimeMs = Date.now() - state.runStartMs;
+  state.phase = "gameover";
+  submitScore();
+}
 
 function skipTesterForward500() {
   if (!player || !level || state.phase !== "playing") return;
@@ -634,6 +681,10 @@ window.addEventListener("keydown", e => {
   }
   if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
     skipTesterForward500();
+    e.preventDefault();
+  }
+  if (!e.repeat && e.shiftKey && e.code === "KeyD" && keys["KeyF"]) {
+    forceGameOverSubmit();
     e.preventDefault();
   }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
@@ -1511,6 +1562,139 @@ function drawPicassoCubistDesertMidground() {
   ctx.restore();
 }
 
+// Stages 3–10: extra Picasso-inspired abstract layers (different “period” per stage). Decorative only.
+function drawPicassoAbstractSkyLayer(ti) {
+  if (ti < 2) return;
+  const p = camX * 0.19;
+  const q = camX * 0.11;
+  ctx.save();
+  ctx.globalAlpha = 0.36;
+  switch (ti) {
+    case 2: {
+      const pal = ["#283593", "#c62828", "#f9a825", "#004d40", "#6a1b9a"];
+      for (let k = 0; k < 16; k++) {
+        const ox = ((k * 165 - p + 4100) % 4400) - 320;
+        const oy = 20 + (k % 5) * 36;
+        ctx.fillStyle = pal[k % pal.length];
+        ctx.beginPath();
+        ctx.moveTo(ox, oy + 40);
+        ctx.lineTo(ox + 70 + (k % 3) * 12, oy - 8);
+        ctx.lineTo(ox + 110, oy + 90);
+        ctx.lineTo(ox - 15, oy + 75);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.22)";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+      break;
+    }
+    case 3: {
+      ctx.globalAlpha = 0.4;
+      for (let k = 0; k < 14; k++) {
+        const ox = ((k * 175 - q + 3600) % 4000) - 280;
+        const oy = 45 + (k % 4) * 22;
+        ctx.fillStyle = k % 2 === 0 ? "rgba(100,181,246,0.55)" : "rgba(227,242,253,0.45)";
+        ctx.beginPath();
+        ctx.moveTo(ox, oy + 60);
+        ctx.lineTo(ox + 45, oy);
+        ctx.lineTo(ox + 95, oy + 35);
+        ctx.lineTo(ox + 40, oy + 85);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case 4: {
+      for (let k = 0; k < 12; k++) {
+        const ox = ((k * 190 - p + 3500) % 3900) - 260;
+        const oy = 60 + (k % 3) * 30;
+        ctx.fillStyle = k % 2 === 0 ? "rgba(0,151,167,0.5)" : "rgba(38,166,154,0.4)";
+        ctx.beginPath();
+        ctx.arc(ox + 40, oy + 30, 38, 0.2, Math.PI + 0.6);
+        ctx.lineTo(ox + 95, oy + 70);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case 5: {
+      for (let k = 0; k < 13; k++) {
+        const ox = ((k * 155 - q + 3800) % 4100) - 300;
+        const oy = 30 + (k % 4) * 28;
+        ctx.fillStyle = k % 3 === 0 ? "rgba(255,112,67,0.55)" : (k % 3 === 1 ? "rgba(255,213,79,0.45)" : "rgba(216,67,21,0.4)");
+        ctx.beginPath();
+        ctx.moveTo(ox, oy + 80);
+        ctx.lineTo(ox + 55, oy);
+        ctx.lineTo(ox + 100, oy + 50);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case 6: {
+      ctx.globalAlpha = 0.45;
+      for (let k = 0; k < 18; k++) {
+        const ox = ((k * 98 - p + 3200) % 3600) - 200;
+        const oy = 25 + (k % 6) * 18;
+        ctx.fillStyle = k % 2 === 0 ? "rgba(0,229,255,0.35)" : "rgba(255,64,129,0.32)";
+        ctx.fillRect(ox, oy, 32 + (k % 4) * 8, 22 + (k % 3) * 6);
+        ctx.strokeStyle = "rgba(255,255,255,0.15)";
+        ctx.strokeRect(ox, oy, 32 + (k % 4) * 8, 22 + (k % 3) * 6);
+      }
+      break;
+    }
+    case 7: {
+      for (let k = 0; k < 15; k++) {
+        const ox = ((k * 142 - q + 3400) % 3800) - 250;
+        const oy = 40 + (k % 5) * 24;
+        ctx.fillStyle = k % 2 === 0 ? "rgba(93,64,55,0.55)" : "rgba(255,87,34,0.4)";
+        ctx.beginPath();
+        ctx.moveTo(ox + 20, oy);
+        ctx.lineTo(ox + 90, oy + 20);
+        ctx.lineTo(ox + 70, oy + 95);
+        ctx.lineTo(ox, oy + 70);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case 8: {
+      ctx.globalAlpha = 0.32;
+      for (let k = 0; k < 11; k++) {
+        const ox = ((k * 210 - p + 4000) % 4200) - 300;
+        const oy = 55 + (k % 3) * 40;
+        ctx.fillStyle = "rgba(187,222,251,0.5)";
+        ctx.beginPath();
+        ctx.ellipse(ox + 50, oy + 40, 55, 28, 0.35 + k * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(100,181,246,0.35)";
+        ctx.stroke();
+      }
+      break;
+    }
+    case 9: {
+      ctx.globalAlpha = 0.4;
+      for (let k = 0; k < 20; k++) {
+        const ox = ((k * 120 - q + 3000) % 3400) - 180;
+        const oy = 25 + (k % 7) * 20;
+        const hue = (k * 47 + Math.floor(camX * 0.02)) % 360;
+        ctx.fillStyle = `hsla(${hue}, 52%, 48%, 0.38)`;
+        ctx.beginPath();
+        ctx.moveTo(ox, oy + 50);
+        ctx.lineTo(ox + 35, oy);
+        ctx.lineTo(ox + 75, oy + 45);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  ctx.restore();
+}
+
 // Ground-line silhouettes when classic trees are off (stage 3+). Parallax only — no collision.
 function drawThemedGroundSilhouettes(themeIndex) {
   const par = camX * 0.52;
@@ -1796,6 +1980,10 @@ function drawBackground() {
     ctx.arc(cx + r,  by - 12, r + 6, 0, Math.PI * 2);
     ctx.arc(cx + r * 2.2, by, r,    0, Math.PI * 2);
     ctx.fill();
+  }
+
+  if (stageThemeIndex >= 2) {
+    drawPicassoAbstractSkyLayer(stageThemeIndex);
   }
 
   // Parallax hills (seasonal: spring orange, winter snow)
