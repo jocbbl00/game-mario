@@ -774,6 +774,17 @@ function createPlayer() {
 const keys = {};
 const isMobile = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
 
+/** Shift+S+main-row or numpad digit → stage 1–10 (0 = stage 10). */
+function parseTestStageKeyCode(code) {
+  let tail;
+  if (code.startsWith("Digit")) tail = code.slice(5);
+  else if (code.startsWith("Numpad") && code.length === 7) tail = code.slice(6);
+  else return null;
+  if (tail === "0") return 10;
+  const n = parseInt(tail, 10);
+  return n >= 1 && n <= 9 ? n : null;
+}
+
 window.addEventListener("keydown", e => {
   keys[e.code] = true;
   if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyG"]) {
@@ -788,10 +799,21 @@ window.addEventListener("keydown", e => {
     skipTesterForward500();
     e.preventDefault();
   }
-  if (!e.repeat && e.shiftKey && keys["KeyS"] && e.code.startsWith("Digit")) {
-    const d = e.code.slice(5);
-    const stage = d === "0" ? 10 : parseInt(d, 10);
-    if (stage >= 1 && stage <= NUM_LEVELS) {
+  if (!e.repeat && e.shiftKey && state.phase === "playing") {
+    let stage = null;
+    if (keys["KeyS"]) {
+      stage = parseTestStageKeyCode(e.code);
+    } else if (e.code === "KeyS") {
+      for (let i = 0; i <= 9; i++) {
+        const dc = "Digit" + i;
+        const nc = "Numpad" + i;
+        if (keys[dc] || keys[nc]) {
+          stage = i === 0 ? 10 : i;
+          break;
+        }
+      }
+    }
+    if (stage != null && stage >= 1 && stage <= NUM_LEVELS) {
       jumpToTestStage(stage);
       e.preventDefault();
     }
