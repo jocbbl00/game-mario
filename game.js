@@ -336,6 +336,9 @@ let nameAskedThisPageLoad = false;
 /** Secret test: Shift+J then O toggles. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
+let autoPilotRetreatLeft = 0;
+let autoPilotLastX = 0;
+let autoPilotNoMoveAccum = 0;
 
 function createPlayer() {
   return {
@@ -490,10 +493,14 @@ function addPopup(x, y, text) {
   state.popups.push({ x, y, text, life: 60 });
 }
 
-function autoPilotShouldJumpGroundGap() {
+function autoPilotShouldJumpGroundGap(movingLeft) {
   if (!player || !level || !player.onGround) return false;
   const footBottom = player.y + player.h;
   if (footBottom < GROUND_Y - 6) return false;
+  if (movingLeft) {
+    const onTile = Math.floor(player.x / TILE) * TILE;
+    return level.groundSet.has(onTile) && !level.groundSet.has(onTile - TILE);
+  }
   const tileX = Math.floor((player.x + player.w + 2) / TILE) * TILE;
   return level.groundSet.has(tileX - TILE) && !level.groundSet.has(tileX);
 }
@@ -511,11 +518,19 @@ function update(dt) {
 
   if (autoPilot) autoPilotJumpCooldown = Math.max(0, autoPilotJumpCooldown - dt);
 
+  let autoPilotRetreating = false;
   // --- Player input: ← → move, Space / ↑ / W jump, A fireball ---
   if (autoPilot) {
-    player.facingRight = true;
-    player.vx = PLAYER_SPEED * spMult;
-    if (autoPilotJumpCooldown <= 0 && autoPilotShouldJumpGroundGap()) {
+    autoPilotRetreating = autoPilotRetreatLeft > 0;
+    if (autoPilotRetreating) {
+      autoPilotRetreatLeft -= dt;
+      player.facingRight = false;
+      player.vx = -PLAYER_SPEED * spMult;
+    } else {
+      player.facingRight = true;
+      player.vx = PLAYER_SPEED * spMult;
+    }
+    if (autoPilotJumpCooldown <= 0 && autoPilotShouldJumpGroundGap(autoPilotRetreating)) {
       player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
       player.onGround = false;
       autoPilotJumpCooldown = 0.35;
@@ -532,7 +547,12 @@ function update(dt) {
   }
 
   if (player.fireCooldown > 0) player.fireCooldown--;
-  if (player.firePower && player.fireCooldown <= 0 && (keys["KeyA"] || (autoPilot && level.enemies.some(e => e.alive && !e.squished && e.x > player.x && e.x < player.x + 220)))) {
+  const autoPilotShootEnemy = autoPilot && level.enemies.some(e => {
+    if (!e.alive || e.squished) return false;
+    if (autoPilotRetreating) return e.x + e.w > player.x - 200 && e.x + e.w < player.x + player.w + 10;
+    return e.x > player.x - 20 && e.x < player.x + 230;
+  });
+  if (player.firePower && player.fireCooldown <= 0 && (keys["KeyA"] || autoPilotShootEnemy)) {
     player.fireCooldown = FIRE_COOLDOWN_FRAMES;
     const dir = player.facingRight ? 1 : -1;
     fireballs.push({
@@ -812,6 +832,16 @@ function update(dt) {
     state.popups[i].life--;
     if (state.popups[i].life <= 0) state.popups.splice(i, 1);
   }
+
+  if (autoPilot) {
+    if (player.onGround && Math.abs(player.x - autoPilotLastX) < 0.45) autoPilotNoMoveAccum += dt;
+    else autoPilotNoMoveAccum = 0;
+    autoPilotLastX = player.x;
+    if (player.onGround && autoPilotNoMoveAccum > 0.26 && autoPilotRetreatLeft <= 0) {
+      autoPilotRetreatLeft = 0.62;
+      autoPilotNoMoveAccum = 0;
+    }
+  }
 }
 
 function damagePlayer(pitFall = false) {
@@ -873,6 +903,16 @@ function lerpColor(hexA, hexB, t) {
   const g = Math.round(a.g + (b.g - a.g) * u);
   const bl = Math.round(a.b + (b.b - a.b) * u);
   return `rgb(${r},${g},${bl})`;
+}
+
+function getSeasonalParallaxHillColor(themeHill, seasonIndex, blend) {
+  const springOrange = "#ff7043";
+  const winterSnow = "#eceff1";
+  if (seasonIndex === 0) return lerpColor(springOrange, themeHill, blend);
+  if (seasonIndex === 1) return lerpColor(themeHill, springOrange, (1 - blend) * 0.38);
+  if (seasonIndex === 2) return lerpColor(themeHill, winterSnow, blend * 0.88);
+  if (seasonIndex === 3) return lerpColor(winterSnow, themeHill, blend);
+  return themeHill;
 }
 
 function getLevelSpeedMult() {
@@ -1219,14 +1259,29 @@ function drawBackground() {
     ctx.fill();
   }
 
-  // Parallax hills
-  ctx.fillStyle = theme.hill;
+  // Parallax hills (seasonal: spring orange, winter snow)
+  const hillCol = getSeasonalParallaxHillColor(theme.hill, season.index, season.blend);
+  const winterHill = season.index === 3 || (season.index === 2 && season.blend > 0.78);
   for (let h = 0; h < 8; h++) {
     const hx = ((h * 700 - camX * 0.45 + 5600) % 5600) - 200;
     const hr  = 100 + (h % 3) * 35;
+    ctx.fillStyle = hillCol;
     ctx.beginPath();
     ctx.arc(hx, CANVAS_H - 30, hr, Math.PI, 0);
     ctx.fill();
+    if (winterHill) {
+      const peakY = CANVAS_H - 30 - hr;
+      const capA = Math.min(1, season.index === 3 ? 0.88 : (season.blend - 0.78) / 0.22 * 0.88);
+      ctx.fillStyle = `rgba(255,255,255,${capA})`;
+      ctx.beginPath();
+      ctx.arc(hx, peakY + hr * 0.28, hr * 0.42, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = `rgba(250,250,252,${capA * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(hx - hr * 0.24, peakY + hr * 0.18, hr * 0.2, Math.PI, 0);
+      ctx.arc(hx + hr * 0.22, peakY + hr * 0.16, hr * 0.19, Math.PI, 0);
+      ctx.fill();
+    }
   }
 
   if (stageThemeIndex <= 1) {
@@ -1881,6 +1936,9 @@ async function startGame() {
   state.popups         = [];
   state.flagsPassed    = 0;
   fireballs            = [];
+  autoPilotLastX       = 80;
+  autoPilotNoMoveAccum = 0;
+  autoPilotRetreatLeft = 0;
   keys["Space"] = false;
   keys["KeyA"]  = false;
   state.phase          = "playing";
