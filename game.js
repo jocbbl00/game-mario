@@ -35,12 +35,42 @@ const SUPABASE_URL      = "https://mepescolmfmvtgbmdakw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcGVzY29sbWZtdnRnYm1kYWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjY3MzUsImV4cCI6MjA5MTk0MjczNX0.1euG10m5Eq2gmRdlLRegdukKGWlvFs46gb_aJ8G8M8g";
 const EDGE_BASE         = `${SUPABASE_URL}/functions/v1`;
 
-let sbClient = null;
-try {
-  if (SUPABASE_URL !== "YOUR_SUPABASE_URL" && typeof window.supabase !== "undefined") {
-    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+/** CDN exposes `supabase` on globalThis with `createClient` (see package `jsdelivr` field). */
+function tryCreateSupabaseClient() {
+  if (SUPABASE_URL === "YOUR_SUPABASE_URL") return null;
+  try {
+    const g = typeof globalThis !== "undefined" ? globalThis : window;
+    const mod = g.supabase;
+    if (!mod || typeof mod.createClient !== "function") return null;
+    return mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    });
+  } catch (e) {
+    console.warn("Supabase createClient:", e);
+    return null;
   }
-} catch (_) {}
+}
+
+let sbClient = tryCreateSupabaseClient();
+
+/** Top 10 scores via PostgREST when the JS client failed to init (same data as sb path). */
+async function fetchLeaderboardTop10() {
+  const q = new URLSearchParams({
+    select: "name,score,created_at",
+    order:  "score.desc,created_at.desc",
+    limit:  "10",
+  });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/mario_scores?${q}`, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`leaderboard HTTP ${res.status}`);
+  return res.json();
+}
 
 // ============================================================
 // CANVAS
@@ -199,6 +229,8 @@ function generateLevel(seed) {
   ensurePassablePath(out);
 
   addLateStageBrickPlatforms(out, seed);
+
+  ensureMarioWidthClearanceNearPipes(out);
 
   // --- FISH (jump from water gaps; no RNG consumed — deterministic placement) ---
   for (let x = TILE * 20; x < WORLD_W - TILE * 15; x += TILE) {
@@ -607,6 +639,123 @@ function ensurePassablePath(out) {
   });
 }
 
+/** Horizontal gap from rect A’s right to rect B’s left (A left of B). Returns -1 if not separated left/right. */
+function horizontalGapLeftToRight(aL, aR, bL, bR) {
+  if (aR <= bL) return bL - aR;
+  if (bR <= aL) return aL - bR;
+  return -1;
+}
+
+/** True if ? block has at least PLAYER_W horizontal clearance from pipe sides (no overlap, no tight slot). */
+function questionBlockHorizontalPipeClearanceOk(qx, qy, pipes) {
+  for (const pipe of pipes) {
+    if (overlap(qx, qy, TILE, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) return false;
+    const g = horizontalGapLeftToRight(qx, qx + TILE, pipe.x, pipe.x + pipe.w);
+    if (g >= 0 && g < PLAYER_W) return false;
+  }
+  return true;
+}
+
+/**
+ * Post-processing: min horizontal gap PLAYER_W between pipes and floating bricks / ? blocks
+ * so Mario can pass (fixes tight slots next to pipe stems, e.g. early stages).
+ */
+function ensureMarioWidthClearanceNearPipes(out) {
+  const CLEAR = PLAYER_W;
+  const pipes = out.pipes;
+  if (!pipes || pipes.length === 0) return;
+
+  const fixBrickVsPipe = (br, pipe) => {
+    const pL = pipe.x;
+    const pR = pipe.x + pipe.w;
+    const bL = br.x;
+    const bR = br.x + br.w;
+    const gap = horizontalGapLeftToRight(bL, bR, pL, pR);
+    if (gap >= 0 && gap < CLEAR) {
+      if (bR <= pL) {
+        br.w = Math.max(TILE, pL - br.x - CLEAR);
+      } else if (pR <= bL) {
+        const nx = pR + CLEAR;
+        br.w = Math.max(TILE, bR - nx);
+        br.x = nx;
+      }
+      return;
+    }
+    if (gap < 0) {
+      const leftChunkW = pL - CLEAR - bL;
+      const rightChunkW = bR - (pR + CLEAR);
+      if (leftChunkW >= TILE && leftChunkW >= rightChunkW) {
+        br.w = leftChunkW;
+      } else if (rightChunkW >= TILE) {
+        br.x = pR + CLEAR;
+        br.w = rightChunkW;
+      } else if (leftChunkW >= TILE) {
+        br.w = leftChunkW;
+      } else if (rightChunkW > 0) {
+        br.x = pR + CLEAR;
+        br.w = Math.max(TILE, rightChunkW);
+      } else if (leftChunkW > 0) {
+        br.w = Math.max(TILE, leftChunkW);
+      } else {
+        br.x = pR + CLEAR;
+        br.w = TILE;
+      }
+    }
+  };
+
+  const bricks = out.platforms.filter(p => p.type === "brick");
+  for (let pass = 0; pass < 4; pass++) {
+    for (const br of bricks) {
+      for (const pipe of pipes) fixBrickVsPipe(br, pipe);
+    }
+  }
+
+  const canPlaceQuestionAtX = (q, nx) => {
+    if (!hasStandableSupportUnder(out, nx, TILE, q.y)) return false;
+    if (!questionBlockHorizontalPipeClearanceOk(nx, q.y, pipes)) return false;
+    if (questionBlockOverlapsPipe(nx, q.y, pipes)) return false;
+    const patched = {
+      ...out,
+      questionBlocks: out.questionBlocks.map(qb => (qb === q ? { ...qb, x: nx } : qb)),
+    };
+    if (questionBlockPipeSandwich(patched, nx, q.y)) return false;
+    return true;
+  };
+
+  for (const q of out.questionBlocks) {
+    if (canPlaceQuestionAtX(q, q.x)) continue;
+    const baseX = q.x;
+    let placed = false;
+    for (let radius = 1; radius <= 40 && !placed; radius++) {
+      const tryNx = (nx) => {
+        if (nx < 280 || nx > WORLD_W - 400) return false;
+        if (canPlaceQuestionAtX(q, nx)) {
+          q.x = nx;
+          return true;
+        }
+        return false;
+      };
+      placed = tryNx(Math.floor((baseX - radius * TILE) / TILE) * TILE)
+        || tryNx(Math.floor((baseX + radius * TILE) / TILE) * TILE);
+    }
+  }
+
+  for (const e of out.enemies) {
+    if (e.groundBound) continue;
+    const cx = e.x + e.w / 2;
+    for (const br of out.platforms) {
+      if (br.type !== "brick") continue;
+      if (Math.abs(e.y + e.h - br.y) > 10) continue;
+      if (cx < br.x || cx > br.x + br.w) continue;
+      e.minX = br.x;
+      e.maxX = br.x + br.w;
+      const margin = 4;
+      e.x = Math.min(Math.max(e.x, br.x + margin), br.x + br.w - e.w - margin);
+      break;
+    }
+  }
+}
+
 function questionBlockOverlapsPipe(qx, qy, pipes) {
   for (const pipe of pipes) {
     if (overlap(qx, qy, TILE, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) return true;
@@ -646,6 +795,7 @@ function pickQuestionBlockPlacement(qxRaw, qy, out) {
     .sort((a, b) => Math.abs(a - qxRaw) - Math.abs(b - qxRaw));
   const tryX = (qx) => {
     if (!hasStandableSupportUnder(out, qx, TILE, qy)) return null;
+    if (!questionBlockHorizontalPipeClearanceOk(qx, qy, out.pipes)) return null;
     if (questionBlockOverlapsPipe(qx, qy, out.pipes)) return null;
     if (questionBlockPipeSandwich(out, qx, qy)) return null;
     return { x: qx, y: qy };
@@ -670,6 +820,7 @@ function pickQuestionBlockPlacement(qxRaw, qy, out) {
   for (const t of [...out.groundSet].sort((a, b) => a - b)) {
     if (t < 280 || t >= WORLD_W - 200) continue;
     if (!hasStandableSupportUnder(out, t, TILE, qy)) continue;
+    if (!questionBlockHorizontalPipeClearanceOk(t, qy, out.pipes)) continue;
     if (questionBlockOverlapsPipe(t, qy, out.pipes)) continue;
     if (questionBlockPipeSandwich(out, t, qy)) continue;
     return { x: t, y: qy };
@@ -2820,10 +2971,23 @@ async function submitScore() {
   state.phase = "submitting";
   state.lastRank = null;
 
-  if (state.sessionToken) {
+  const sessionId = state.sessionId;
+  const sessionToken = state.sessionToken;
+  const payload = {
+    sessionId,
+    token: sessionToken,
+    name: state.playerName || "Guest",
+    score: state.score,
+    coinsCollected: state.coinsCollected,
+    enemiesDefeated: state.enemiesDefeated,
+    won: state.won,
+    playTimeMs: state.playTimeMs,
+  };
+
+  if (sessionId && sessionToken) {
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 8000);  // 8s timeout
+      const timeout = setTimeout(() => ctrl.abort(), 8000);
       const res = await fetch(`${EDGE_BASE}/submit-score`, {
         method: "POST",
         signal: ctrl.signal,
@@ -2831,23 +2995,23 @@ async function submitScore() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({
-          sessionId      : state.sessionId,
-          token          : state.sessionToken,
-          name           : state.playerName || "Guest",
-          score          : state.score,
-          coinsCollected : state.coinsCollected,
-          enemiesDefeated: state.enemiesDefeated,
-          won            : state.won,
-          playTimeMs     : state.playTimeMs,
-        }),
+        body: JSON.stringify(payload),
       });
       clearTimeout(timeout);
-      const result = await res.json();
-      if (res.ok && result.rank != null) state.lastRank = result.rank;
+      const text = await res.text();
+      if (res.ok) {
+        try {
+          const result = JSON.parse(text);
+          if (result.rank != null) state.lastRank = result.rank;
+        } catch (_) {}
+      } else {
+        console.warn("submit-score:", res.status, text);
+      }
     } catch (e) {
       console.warn("submitScore failed:", e.message);
     }
+  } else {
+    console.warn("submitScore: no session token — score not saved. Check start-session Edge Function.");
   }
 
   state.phase = "done";
@@ -2856,19 +3020,36 @@ async function submitScore() {
 
 async function loadLeaderboard() {
   const el = document.getElementById("leaderboardList");
-  if (!sbClient) {
-    if (el) el.innerHTML = "<li style='color:#555;font-size:10px'>Configure Supabase<br>to enable scores</li>";
+  if (!el) return;
+  if (SUPABASE_URL === "YOUR_SUPABASE_URL") {
+    el.innerHTML = "<li style='color:#555;font-size:10px'>Set SUPABASE_URL in game.js</li>";
     return;
   }
+
   try {
-    const { data } = await sbClient
-      .from("mario_scores")
-      .select("name, score")
-      .order("score", { ascending: false })
-      .limit(10);
-    if (data) renderLeaderboard(data);
-  } catch (_) {
-    if (el) el.innerHTML = "<li style='color:#555'>Unavailable</li>";
+    let rows;
+    if (sbClient) {
+      const { data, error } = await sbClient
+        .from("mario_scores")
+        .select("name, score, created_at")
+        .order("score", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      rows = data;
+    } else {
+      rows = await fetchLeaderboardTop10();
+    }
+    renderLeaderboard(Array.isArray(rows) ? rows : []);
+  } catch (e) {
+    console.warn("loadLeaderboard:", e);
+    try {
+      const fallbackRows = await fetchLeaderboardTop10();
+      renderLeaderboard(Array.isArray(fallbackRows) ? fallbackRows : []);
+    } catch (e2) {
+      console.warn("loadLeaderboard fallback:", e2);
+      el.innerHTML = "<li style='color:#555;font-size:11px'>Scores unavailable</li>";
+    }
   }
 }
 
@@ -2943,6 +3124,7 @@ function resetToStart() {
   state.pipeWarpAnim = null;
   keys["Space"] = false;
   keys["KeyA"]  = false;
+  loadLeaderboard().catch(() => {});
 }
 
 // ============================================================
