@@ -185,7 +185,54 @@ function generateLevel(seed) {
     });
   }
 
+  ensurePassablePath(out);
   return out;
+}
+
+// ============================================================
+// PATH SAFETY — post-processing, no RNG consumed.
+// Guarantees the player can always progress forward by:
+//   1. Bridging ground gaps wider than MAX_GAP_TILES with
+//      stepping-stone platforms (no coins/enemies added, so the
+//      server's max-score calculation is unaffected).
+//   2. Removing pipes that float over a gap (no solid ground
+//      beneath them) — they would trap the player mid-jump.
+// ============================================================
+function ensurePassablePath(out) {
+  const MAX_GAP_TILES = 3; // 3 tiles = 120 px; safely jumpable with a running start
+
+  // --- 1. Patch overlong ground gaps ---
+  let x = 0;
+  while (x < WORLD_W) {
+    if (out.groundSet.has(x)) { x += TILE; continue; }
+
+    // Measure this contiguous gap
+    const gapStart = x;
+    let gapLen = 0;
+    while (x < WORLD_W && !out.groundSet.has(x)) { gapLen++; x += TILE; }
+    // x now points to the first solid tile after the gap (or WORLD_W)
+
+    if (gapLen > MAX_GAP_TILES) {
+      // Insert stepping stones so no sub-gap exceeds MAX_GAP_TILES tiles.
+      // Stones are placed at indices MAX_GAP_TILES, 2*(MAX_GAP_TILES+1)-1, …
+      // i.e. every (MAX_GAP_TILES + 1) tiles from the gap start.
+      for (let step = MAX_GAP_TILES; step < gapLen; step += MAX_GAP_TILES + 1) {
+        const stoneX = gapStart + step * TILE;
+        if (!out.groundSet.has(stoneX)) {
+          out.groundSet.add(stoneX);
+          out.platforms.push({ x: stoneX, y: GROUND_Y, w: TILE, h: TILE * 3, type: "ground" });
+        }
+      }
+    }
+  }
+
+  // --- 2. Remove pipes that float over a gap ---
+  // A pipe over a gap blocks the player mid-jump and makes the gap uncrossable.
+  out.pipes = out.pipes.filter(pipe => {
+    const lx = Math.floor(pipe.x / TILE) * TILE;
+    const rx = Math.floor((pipe.x + pipe.w - 1) / TILE) * TILE;
+    return out.groundSet.has(lx) && out.groundSet.has(rx);
+  });
 }
 
 function questionBlockOverlapsPipe(qx, qy, pipes) {
