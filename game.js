@@ -649,7 +649,7 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
-/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+F+D game over + score submit. */
+/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
@@ -721,17 +721,16 @@ const isMobile = window.matchMedia("(hover: none) and (pointer: coarse)").matche
 
 window.addEventListener("keydown", e => {
   keys[e.code] = true;
-  if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyJ"]) {
+  if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyG"]) {
+    forceGameOverSubmit();
+    e.preventDefault();
+  } else if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyJ"]) {
     autoPilot = !autoPilot;
     if (autoPilot && state.phase === "playing") state.lives = 999;
     e.preventDefault();
   }
   if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
     skipTesterForward500();
-    e.preventDefault();
-  }
-  if (!e.repeat && e.shiftKey && e.code === "KeyD" && keys["KeyF"]) {
-    forceGameOverSubmit();
     e.preventDefault();
   }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
