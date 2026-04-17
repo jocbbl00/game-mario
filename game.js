@@ -11,7 +11,9 @@ const JUMP_FORCE = -13;
 const PLAYER_W  = 28;
 const PLAYER_H  = 36;
 const PLAYER_SPEED = 4.5;
-const WORLD_W   = 8000;
+const NUM_LEVELS   = 10;
+const LEVEL_SEG_W  = 2000;           // 10 segments ≈ 20000 world units to final flag
+const WORLD_W      = NUM_LEVELS * LEVEL_SEG_W;
 const GROUND_Y  = CANVAS_H - TILE;   // y where ground platforms start
 const MUSHROOM_W = 24;
 const MUSHROOM_H = 24;
@@ -73,7 +75,6 @@ function generateLevel(seed) {
     pipes     : [],
     questionBlocks: [],
     mushrooms : [],
-    flagX     : WORLD_W - 320,
     coinCount : 0,
     enemyCount: 0,
     groundSet : new Set(),   // tile-aligned x positions that have solid ground
@@ -254,6 +255,7 @@ const state = {
   levelSeed     : null,
   playerName    : "",
   popups        : [],   // floating score text
+  flagsPassed   : 0,    // checkpoints cleared (0..10); win at 10
 };
 
 let level   = null;
@@ -417,9 +419,12 @@ function update(dt) {
 
   coinSpin += dt * 4;
 
+  const spMult = getLevelSpeedMult();
+  const gMult  = getGravityMult();
+
   // --- Player input: ← → move, Space / ↑ / W jump, A fireball ---
-  if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED; player.facingRight = false; }
-  else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED;  player.facingRight = true;  }
+  if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED * spMult; player.facingRight = false; }
+  else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED * spMult;  player.facingRight = true;  }
   else player.vx *= 0.75;
 
   if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
@@ -434,14 +439,14 @@ function update(dt) {
     fireballs.push({
       x: player.facingRight ? player.x + player.w - 4 : player.x - 6,
       y: player.y + 14,
-      vx: dir * FIREBALL_SPEED,
+      vx: dir * FIREBALL_SPEED * spMult,
       vy: 0,
       life: 96,
     });
   }
 
   // --- Physics ---
-  player.vy += GRAVITY;
+  player.vy += GRAVITY * gMult;
   if (player.vy >  18) player.vy =  18;
   player.x += player.vx;
   player.y += player.vy;
@@ -494,7 +499,7 @@ function update(dt) {
       m.emerge++;
       continue;
     }
-    m.vy += GRAVITY;
+    m.vy += GRAVITY * gMult;
     m.x += m.vx;
     m.y += m.vy;
     m.onGround = false;
@@ -587,7 +592,7 @@ function update(dt) {
       }
     }
 
-    e.x += e.vx;
+    e.x += e.vx * spMult;
     if (e.x <= e.minX)          { e.x = e.minX;          e.vx =  Math.abs(e.vx); }
     if (e.x + e.w >= e.maxX)    { e.x = e.maxX - e.w;    e.vx = -Math.abs(e.vx); }
 
@@ -608,10 +613,16 @@ function update(dt) {
     }
   }
 
-  // --- Flag (win) ---
-  if (player.x + player.w >= level.flagX) {
-    winGame();
-    return;
+  // --- Flags: one per segment; 10th flag wins (~20k world) ---
+  const nextFlagX = (state.flagsPassed + 1) * LEVEL_SEG_W - 320;
+  if (player.x + player.w >= nextFlagX) {
+    state.flagsPassed++;
+    if (state.flagsPassed >= NUM_LEVELS) {
+      winGame();
+      return;
+    }
+    state.score += 500;
+    addPopup(CANVAS_W / 2, 100, `LEVEL ${state.flagsPassed + 1}`);
   }
 
   // --- Camera ---
@@ -646,7 +657,7 @@ function damagePlayer(pitFall = false) {
 
 function winGame() {
   state.won   = true;
-  state.score += 1000;
+  state.score += 1000 + 1500;
   const timeSecs  = (Date.now() - state.runStartMs) / 1000;
   const timeBonus = Math.max(0, Math.floor(2000 - timeSecs * 8));
   state.score     += timeBonus;
@@ -681,6 +692,18 @@ function lerpColor(hexA, hexB, t) {
   const g = Math.round(a.g + (b.g - a.g) * u);
   const bl = Math.round(a.b + (b.b - a.b) * u);
   return `rgb(${r},${g},${bl})`;
+}
+
+function getLevelSpeedMult() {
+  return 1 + state.flagsPassed * 0.042;
+}
+
+function getGravityMult() {
+  return 1 + state.flagsPassed * 0.016;
+}
+
+function getCreepFactor() {
+  return Math.min(1, state.flagsPassed / Math.max(1, NUM_LEVELS - 1));
 }
 
 // 0 spring, 1 summer, 2 fall, 3 winter — advances as you cross the world
@@ -834,6 +857,28 @@ function drawBackground() {
     ctx.beginPath();
     ctx.arc(hx, CANVAS_H - 30, hr, Math.PI, 0);
     ctx.fill();
+  }
+
+  const creep = player ? getCreepFactor() : 0;
+  if (creep > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = 0.1 + creep * 0.12;
+    ctx.fillStyle = "#050510";
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalAlpha = 0.15 * creep;
+    ctx.fillStyle = "#200008";
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H * 0.5);
+    const fog = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    fog.addColorStop(0, "rgba(0,0,0,0)");
+    fog.addColorStop(0.55, `rgba(10,5,20,${0.15 * creep})`);
+    fog.addColorStop(1, `rgba(0,0,0,${0.35 * creep})`);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = fog;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalAlpha = 0.04 * creep;
+    ctx.fillStyle = "#ff0000";
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.restore();
   }
 }
 
@@ -1061,20 +1106,27 @@ function drawPlayer() {
 }
 
 function drawFlag() {
-  const sx = level.flagX - camX;
-  if (sx < -60 || sx > CANVAS_W + 60) return;
-  ctx.fillStyle = "#9e9e9e";
-  ctx.fillRect(sx, GROUND_Y - 180, 5, 180);
-  ctx.fillStyle = "#e63946";
-  ctx.beginPath();
-  ctx.moveTo(sx + 5, GROUND_Y - 180);
-  ctx.lineTo(sx + 50, GROUND_Y - 158);
-  ctx.lineTo(sx + 5,  GROUND_Y - 136);
-  ctx.fill();
-  ctx.fillStyle = "#ffd700";
-  ctx.beginPath();
-  ctx.arc(sx + 2, GROUND_Y - 180, 7, 0, Math.PI * 2);
-  ctx.fill();
+  for (let k = 0; k < NUM_LEVELS; k++) {
+    const fx = (k + 1) * LEVEL_SEG_W - 320;
+    const sx = fx - camX;
+    if (sx + 60 < -40 || sx > CANVAS_W + 40) continue;
+    const creep = k / Math.max(1, NUM_LEVELS - 1);
+    const pole = lerpColor("#9e9e9e", "#3d3d45", creep);
+    const flagR = lerpColor("#e63946", "#4a0a12", creep);
+    const orb = lerpColor("#ffd700", "#5c4030", creep);
+    ctx.fillStyle = pole;
+    ctx.fillRect(sx, GROUND_Y - 180, 5, 180);
+    ctx.fillStyle = flagR;
+    ctx.beginPath();
+    ctx.moveTo(sx + 5, GROUND_Y - 180);
+    ctx.lineTo(sx + 50, GROUND_Y - 158);
+    ctx.lineTo(sx + 5,  GROUND_Y - 136);
+    ctx.fill();
+    ctx.fillStyle = orb;
+    ctx.beginPath();
+    ctx.arc(sx + 2, GROUND_Y - 180, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawHUD() {
@@ -1108,10 +1160,15 @@ function drawHUD() {
   ctx.textAlign = "center";
   ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 48);
 
+  ctx.fillStyle = "#9ccc65";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.textAlign = "right";
+  ctx.fillText(`STAGE ${state.flagsPassed + 1}/${NUM_LEVELS}`, CANVAS_W - 10, 40);
+
+  ctx.fillStyle = "#e63946";
+  ctx.font = "20px Arial";
   ctx.textAlign = "right";
   for (let i = 0; i < state.lives; i++) {
-    ctx.fillStyle = "#e63946";
-    ctx.font = "20px Arial";
     ctx.fillText("♥", CANVAS_W - 10 - i * 22, 22);
   }
 }
@@ -1169,7 +1226,7 @@ function drawStart() {
   ctx.fillStyle = "#ccc";
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
-  ctx.fillText("Reach the flag  +1000  Time bonus up to +2000", CANVAS_W / 2, 305);
+  ctx.fillText("10 stages · ~20k units · final flag wins  +2500", CANVAS_W / 2, 305);
   ctx.fillText("? blocks: bump from below  mushroom  A = fire", CANVAS_W / 2, 335);
 
   ctx.fillStyle = "#a5d6a7";
@@ -1241,6 +1298,7 @@ function render() {
 
   if (state.phase === "win" || (submitting && state.won) || (done && state.won)) {
     drawOverlay("YOU WIN!", "#ffd700", [
+      { text: "All 10 stages cleared!" },
       { text: `Final Score: ${state.score}` },
       { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
       ...(statusText ? [{ text: statusText, color: statusColor }] : []),
@@ -1394,6 +1452,7 @@ async function startGame() {
   state.runStartMs     = Date.now();
   state.playTimeMs     = 0;
   state.popups         = [];
+  state.flagsPassed    = 0;
   fireballs            = [];
   keys["Space"] = false;
   keys["KeyA"]  = false;

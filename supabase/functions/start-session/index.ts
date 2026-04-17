@@ -36,7 +36,7 @@ function makeRNG(seed: number) {
 // ============================================================
 function computeLevelStats(seed: number): { coinCount: number; enemyCount: number; maxScore: number } {
   const TILE    = 40;
-  const WORLD_W = 8000;
+  const WORLD_W = 20000;
   const GROUND_Y = 520; // CANVAS_H - TILE
 
   const rng = makeRNG(seed);
@@ -106,8 +106,8 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
     rng(); // qy
   }
 
-  // maxScore = all coins + all enemies + win bonus + max time bonus
-  const maxScore = coinCount * 100 + enemyCount * 200 + 1000 + 2000;
+  // maxScore = coins + enemies + win clear + max time + max per-segment flag bonuses (9×500)
+  const maxScore = coinCount * 100 + enemyCount * 200 + 2500 + 2000 + 4500;
   return { coinCount, enemyCount, maxScore };
 }
 
