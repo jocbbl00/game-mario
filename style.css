@@ -201,7 +201,7 @@ canvas {
   z-index: 200;
 }
 
-/* Fireball: only on touch-primary devices (PC uses Space; no on-screen fire on desktop) */
+/* Fireball: only on touch-primary devices (PC uses A; on-screen A on mobile) */
 #touch-fire {
   display: none !important;
 }

@@ -316,8 +316,8 @@ function setupTouchControls() {
 
   bindBtn(btnLeft,  "ArrowLeft");
   bindBtn(btnRight, "ArrowRight");
-  bindBtn(btnJump,  "ArrowUp");
-  if (btnFire) bindBtn(btnFire, "Space");
+  bindBtn(btnJump,  "Space");
+  if (btnFire) bindBtn(btnFire, "KeyA");
 }
 
 // Tap canvas to start / restart on touch devices
@@ -417,18 +417,18 @@ function update(dt) {
 
   coinSpin += dt * 4;
 
-  // --- Player input: ← → move, ↑/W jump, Space fireball ---
+  // --- Player input: ← → move, Space / ↑ / W jump, A fireball ---
   if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED; player.facingRight = false; }
   else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED;  player.facingRight = true;  }
   else player.vx *= 0.75;
 
-  if ((keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
+  if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
   }
 
   if (player.fireCooldown > 0) player.fireCooldown--;
-  if (player.firePower && player.fireCooldown <= 0 && keys["Space"]) {
+  if (player.firePower && player.fireCooldown <= 0 && keys["KeyA"]) {
     player.fireCooldown = FIRE_COOLDOWN_FRAMES;
     const dir = player.facingRight ? 1 : -1;
     fireballs.push({
@@ -1106,7 +1106,7 @@ function drawHUD() {
   ctx.fillStyle = "#9e9e9e";
   ctx.font = "9px 'Courier New'";
   ctx.textAlign = "center";
-  ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ \u2191 ] [ W ] jump    [ Space ] fire", CANVAS_W / 2, 48);
+  ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 48);
 
   ctx.textAlign = "right";
   for (let i = 0; i < state.lives; i++) {
@@ -1170,16 +1170,16 @@ function drawStart() {
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
   ctx.fillText("Reach the flag  +1000  Time bonus up to +2000", CANVAS_W / 2, 305);
-  ctx.fillText("? blocks: bump from below  mushroom  Space = fire", CANVAS_W / 2, 335);
+  ctx.fillText("? blocks: bump from below  mushroom  A = fire", CANVAS_W / 2, 335);
 
   ctx.fillStyle = "#a5d6a7";
   ctx.font = "13px 'Courier New'";
   if (isMobile) {
-    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ \u25B2 ] jump    [ \u25CF ] fire", CANVAS_W / 2, 362);
-    ctx.fillText("(fire needs ? mushroom)", CANVAS_W / 2, 382);
+    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 362);
+    ctx.fillText("Fire needs ? mushroom", CANVAS_W / 2, 382);
   } else {
-    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ \u2191 ] [ W ] jump    [ Space ] fire", CANVAS_W / 2, 362);
-    ctx.fillText("(fire after ? mushroom)", CANVAS_W / 2, 382);
+    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 362);
+    ctx.fillText("\u2191 and W also jump · fire after ? mushroom", CANVAS_W / 2, 382);
   }
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
@@ -1395,6 +1395,8 @@ async function startGame() {
   state.playTimeMs     = 0;
   state.popups         = [];
   fireballs            = [];
+  keys["Space"] = false;
+  keys["KeyA"]  = false;
   state.phase          = "playing";
 }
 
@@ -1402,6 +1404,8 @@ function resetToStart() {
   state.phase        = "start";
   state.sessionId    = null;
   state.sessionToken = null;
+  keys["Space"] = false;
+  keys["KeyA"]  = false;
 }
 
 // ============================================================
