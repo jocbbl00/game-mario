@@ -270,7 +270,7 @@ function markWarpPipes(lv) {
 }
 
 /** Each surface stage (0–9) has a distinct bonus room. `dy` = pixels above ground for platform top / coin height. */
-function makeBonusRoom(segment, uw, stemLen, exitOff, brickSpecs, coinSpecs) {
+function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
   const groundSet = new Set();
   const platforms = [];
   for (let x = 0; x < uw; x += TILE) {
@@ -284,8 +284,21 @@ function makeBonusRoom(segment, uw, stemLen, exitOff, brickSpecs, coinSpecs) {
     const h = b[3] != null ? b[3] : TILE;
     brick(b[0], GROUND_Y - b[1], b[2], h);
   }
-  const exitX = uw - TILE * 2 - exitOff;
   const pipeW = TILE * 2;
+  let exitBrick = null;
+  for (const b of brickSpecs) {
+    const bw = b[2];
+    const bx = b[0];
+    const dy = b[1];
+    const right = bx + bw;
+    if (!exitBrick || right > exitBrick.right || (right === exitBrick.right && dy > exitBrick.dy)) {
+      exitBrick = { x: bx, w: bw, dy, right };
+    }
+  }
+  let exitX = exitBrick
+    ? exitBrick.x + (exitBrick.w - pipeW) / 2
+    : uw - TILE * 2 - 60;
+  exitX = Math.floor(Math.max(8, Math.min(exitX, uw - pipeW - 8)));
   const exitPipeH = stemLen + TILE * 2;
   brick(exitX, TILE, 8, stemLen + TILE);
   brick(exitX + pipeW - 8, TILE, 8, stemLen + TILE);
@@ -321,61 +334,61 @@ function buildUndergroundBonus(segmentIndex = 0) {
   const S = (n) => Math.max(22, Math.min(36, n));
   switch (seg) {
     case 0:
-      return makeBonusRoom(seg, 2700, S(28), 52, [
+      return makeBonusRoom(seg, 2700, S(28), [
         [180, 88, 200], [460, 138, 140], [700, 98, 220], [980, 178, 160],
         [1240, 128, 130], [1500, 208, 180], [1760, 158, 120], [2020, 238, 150],
         [2280, 188, 100], [2480, 268, 120], [2580, 328, 90],
       ], [[320, 118], [620, 168], [900, 128], [1320, 218], [1720, 238], [2100, 258], [2440, 288]]);
     case 1:
-      return makeBonusRoom(seg, 2650, S(26), 48, [
+      return makeBonusRoom(seg, 2650, S(26), [
         [220, 75, 260], [560, 145, 100], [780, 105, 180], [1080, 185, 200],
         [1380, 135, 140], [1680, 215, 160], [1920, 165, 100], [2180, 245, 140],
         [2380, 195, 120], [2520, 285, 100],
       ], [[380, 105], [700, 175], [1020, 135], [1540, 225], [1860, 185], [2260, 255], [2460, 305]]);
     case 2:
-      return makeBonusRoom(seg, 2900, S(30), 58, [
+      return makeBonusRoom(seg, 2900, S(30), [
         [160, 95, 160], [380, 155, 120], [560, 115, 200], [820, 195, 140],
         [1040, 145, 130], [1280, 225, 170], [1540, 175, 150], [1780, 255, 120],
         [2000, 205, 180], [2260, 285, 130], [2460, 235, 100], [2620, 315, 110],
       ], [[300, 125], [640, 185], [940, 135], [1180, 235], [1620, 255], [1940, 215], [2340, 295], [2680, 335]]);
     case 3:
-      return makeBonusRoom(seg, 2750, S(24), 44, [
+      return makeBonusRoom(seg, 2750, S(24), [
         [200, 110, 100], [340, 150, 100], [480, 190, 100], [620, 230, 100],
         [900, 160, 220], [1200, 200, 160], [1460, 240, 140], [1720, 180, 200],
         [2000, 260, 120], [2220, 220, 100], [2420, 300, 130],
       ], [[260, 140], [420, 220], [760, 190], [1120, 230], [1380, 270], [1780, 210], [2080, 290], [2480, 330]]);
     case 4:
-      return makeBonusRoom(seg, 2600, S(32), 50, [
+      return makeBonusRoom(seg, 2600, S(32), [
         [240, 70, 320], [620, 120, 140], [860, 160, 180], [1120, 130, 160],
         [1380, 200, 200], [1660, 150, 120], [1900, 210, 160], [2140, 170, 140],
         [2360, 250, 120],
       ], [[400, 100], [780, 150], [1100, 180], [1480, 220], [1820, 190], [2220, 270], [2460, 230]]);
     case 5:
-      return makeBonusRoom(seg, 2850, S(27), 56, [
+      return makeBonusRoom(seg, 2850, S(27), [
         [150, 85, 170], [400, 135, 150], [620, 95, 210], [900, 175, 130],
         [1120, 125, 190], [1380, 205, 150], [1600, 155, 170], [1860, 235, 100],
         [2060, 185, 200], [2320, 265, 120], [2520, 215, 160], [2740, 295, 90],
       ], [[280, 115], [520, 165], [800, 125], [1250, 210], [1520, 185], [1920, 250], [2200, 200], [2580, 290]]);
     case 6:
-      return makeBonusRoom(seg, 2720, S(29), 46, [
+      return makeBonusRoom(seg, 2720, S(29), [
         [190, 100, 200], [460, 180, 120], [640, 120, 240], [940, 200, 140],
         [1180, 140, 160], [1420, 220, 180], [1700, 160, 120], [1900, 240, 200],
         [2180, 190, 100], [2380, 270, 140], [2580, 220, 100],
       ], [[340, 130], [600, 210], [880, 150], [1280, 230], [1560, 190], [2000, 260], [2280, 210], [2520, 285]]);
     case 7:
-      return makeBonusRoom(seg, 2950, S(25), 60, [
+      return makeBonusRoom(seg, 2950, S(25), [
         [170, 78, 150], [360, 118, 150], [550, 158, 150], [740, 198, 150],
         [1000, 128, 280], [1340, 168, 140], [1560, 208, 160], [1800, 148, 220],
         [2100, 228, 120], [2320, 178, 180], [2560, 258, 140], [2780, 308, 100],
       ], [[250, 108], [480, 188], [820, 138], [1180, 198], [1460, 238], [1740, 178], [2060, 248], [2420, 288], [2760, 328]]);
     case 8:
-      return makeBonusRoom(seg, 2680, S(31), 42, [
+      return makeBonusRoom(seg, 2680, S(31), [
         [210, 92, 280], [560, 142, 120], [760, 112, 200], [1040, 172, 240],
         [1360, 132, 160], [1600, 192, 180], [1860, 152, 140], [2080, 232, 200],
         [2360, 182, 160],
       ], [[350, 122], [680, 162], [920, 142], [1280, 202], [1720, 222], [1980, 182], [2240, 252]]);
     default:
-      return makeBonusRoom(seg, 2800, S(26), 54, [
+      return makeBonusRoom(seg, 2800, S(26), [
         [200, 80, 190], [450, 130, 170], [680, 100, 200], [940, 170, 210],
         [1220, 120, 150], [1460, 200, 180], [1720, 150, 160], [1960, 230, 140],
         [2200, 180, 200], [2480, 260, 120], [2660, 220, 100], [2760, 300, 100],
@@ -437,14 +450,12 @@ function tryPipeWarpExit() {
   if (state.pipeWarpAnim) return;
   for (const pipe of level.pipes) {
     if (!pipe.warpUp || !pipe.ceilingExit) continue;
-    // Generous “upper pipe” zone: lip + upper stem — no need to thread the mouth perfectly.
-    const touchX = pipe.x - 18;
-    const touchW = pipe.w + 36;
-    const touchY = pipe.y;
-    const touchH = Math.min(pipe.h * 0.55, TILE * 4 + 20);
-    if (!overlap(player.x, player.y, player.w, player.h, touchX, touchY, touchW, touchH)) continue;
-    if (player.onGround && player.vy >= 0) continue;
-    if (player.vy > 5) continue;
+    const mouthX = pipe.x + 10;
+    const mouthW = pipe.w - 20;
+    const mouthY = pipe.y;
+    const mouthH = TILE + 6;
+    if (!overlap(player.x, player.y, player.w, player.h, mouthX, mouthY, mouthW, mouthH)) continue;
+    if (player.vy >= -0.28) continue;
     state.pipeWarpAnim = {
       kind: "up",
       elapsed: 0,
@@ -2458,7 +2469,7 @@ function drawHUD() {
   ctx.textAlign = "center";
   if (state.layer === "underground") {
     const br = level && level.bonusSegment != null ? level.bonusSegment + 1 : "?";
-    ctx.fillText(`BONUS ${br}/10   touch upper red pipe (jump) to exit    [ \u2190 ] [ \u2192 ]    [ Space ]`, CANVAS_W / 2, 44);
+    ctx.fillText(`BONUS ${br}/10   jump into red pipe lip (up) to exit    [ \u2190 ] [ \u2192 ]    [ Space ]`, CANVAS_W / 2, 44);
     ctx.fillStyle = "#90caf9";
     ctx.font = "9px 'Courier New'";
     const cap = level && level.bonusStarTotal != null ? level.bonusStarTotal : 3;
