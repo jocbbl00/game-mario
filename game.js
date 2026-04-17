@@ -24,6 +24,7 @@ const FIRE_POWER_SEC = 5;
 const JUMP_POWER_SEC = 5;
 const SUPER_JUMP_FORCE = -20;          // green mushroom: higher jump
 const RESPAWN_INVINCIBLE_MS = 3000;
+const SEASON_DURATION_SEC = 10;
 
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
@@ -833,13 +834,16 @@ function getCreepFactor() {
   return Math.min(1, state.flagsPassed / Math.max(1, NUM_LEVELS - 1));
 }
 
-// 0 spring, 1 summer, 2 fall, 3 winter — advances as you cross the world
+// 0 spring, 1 summer, 2 fall, 3 winter — advances every 10 seconds
 function getSeasonProgress() {
-  if (!player) return { index: 0, blend: 0 };
-  const t = Math.min(1, Math.max(0, player.x / WORLD_W));
-  const seg = (t * 6) % 4;            // 1.5 full season cycles across the world
+  const seasonCycleSec = SEASON_DURATION_SEC * 4;
+  const elapsedSec = state.runStartMs > 0
+    ? (Date.now() - state.runStartMs) / 1000
+    : Date.now() / 1000;
+  const seg = (elapsedSec / SEASON_DURATION_SEC) % 4;
   const index = Math.floor(seg);
   const blend = seg - index;
+  const t = (elapsedSec % seasonCycleSec) / seasonCycleSec;
   return { index, blend, t };
 }
 
