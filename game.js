@@ -180,9 +180,10 @@ function generateLevel(seed) {
   // --- QUESTION BLOCKS (must consume RNG in same order on server) ---
   // Same 2 rng() calls per block as before; snap X so block sits over standable ground/pipe-free.
   const nQ = (8 + Math.floor(rng() * 5)) * 5;         // ×5 for 5× world
+  const Q_MIN_Y = GROUND_Y - 168; // don’t float ? blocks too high (same RNG count as before)
   for (let i = 0; i < nQ; i++) {
     const qxRaw = 400 + Math.floor(rng() * (WORLD_W - 800));
-    const qy = GROUND_Y - 130 - Math.floor(rng() * 90);
+    const qy = Math.max(Q_MIN_Y, GROUND_Y - 130 - Math.floor(rng() * 90));
     const q = pickQuestionBlockPlacement(qxRaw, qy, out);
     out.questionBlocks.push({
       x: q.x, y: q.y, w: TILE, h: TILE,
@@ -458,6 +459,24 @@ function questionBlockOverlapsPipe(qx, qy, pipes) {
   return false;
 }
 
+/** True if ? block sits in a tight vertical slot above a pipe lip (hard to hit / blocks path). */
+function questionBlockPipeSandwich(out, qx, qy) {
+  const hb = qy + TILE;
+  for (const pipe of out.pipes) {
+    if (qx + TILE <= pipe.x || qx >= pipe.x + pipe.w) continue;
+    if (overlap(qx, qy, TILE, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) return true;
+    // Block bottom just above pipe top — classic stuck spot between pipe and platform above
+    if (hb <= pipe.y + 6 && hb > pipe.y - 72) {
+      for (const pl of out.platforms) {
+        if (pl.type !== "brick") continue;
+        if (qx + TILE <= pl.x || qx >= pl.x + pl.w) continue;
+        if (pl.y + pl.h > qy - 8 && pl.y < qy + TILE + 12) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function hasStandableSupportUnder(out, bx, bw, by) {
   const blockBottom = by + TILE;
   if (blockBottom > GROUND_Y - 16) return false;
@@ -473,6 +492,7 @@ function pickQuestionBlockPlacement(qxRaw, qy, out) {
   const tryX = (qx) => {
     if (!hasStandableSupportUnder(out, qx, TILE, qy)) return null;
     if (questionBlockOverlapsPipe(qx, qy, out.pipes)) return null;
+    if (questionBlockPipeSandwich(out, qx, qy)) return null;
     return { x: qx, y: qy };
   };
   for (const t of tiles) {
@@ -496,6 +516,7 @@ function pickQuestionBlockPlacement(qxRaw, qy, out) {
     if (t < 280 || t >= WORLD_W - 200) continue;
     if (!hasStandableSupportUnder(out, t, TILE, qy)) continue;
     if (questionBlockOverlapsPipe(t, qy, out.pipes)) continue;
+    if (questionBlockPipeSandwich(out, t, qy)) continue;
     return { x: t, y: qy };
   }
   return { x: 400, y: qy };
@@ -532,7 +553,7 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
-/** Secret test: Shift+J then O toggles. */
+/** Secret test: Shift+J then O toggles autopilot. Shift+J+O+N skips +500px on surface. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
@@ -541,6 +562,32 @@ let autoPilotNoMoveAccum = 0;
 let surfaceLevelRef = null;
 let surfaceSave     = null;
 let pipeWarpLockUntil = 0;
+
+function skipTesterForward500() {
+  if (!player || !level || state.phase !== "playing") return;
+  if (state.layer !== "surface") return;
+  state.pipeWarpAnim = null;
+  let nx = Math.min(player.x + 500, WORLD_W - player.w);
+  const tileX = Math.floor(nx / TILE) * TILE;
+  let tx = tileX;
+  if (!level.groundSet.has(tx)) {
+    let found = false;
+    for (let d = 0; d < 80; d++) {
+      const a = tileX + d * TILE;
+      const b = tileX - d * TILE;
+      if (a < WORLD_W && level.groundSet.has(a)) { tx = a; found = true; break; }
+      if (b >= 0 && level.groundSet.has(b)) { tx = b; found = true; break; }
+    }
+    if (!found) tx = Math.max(0, tileX);
+  }
+  player.x = Math.min(tx + 6, WORLD_W - player.w);
+  player.y = GROUND_Y - PLAYER_H;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = true;
+  if (player.x > player.maxX) player.maxX = player.x;
+  camX = Math.max(0, Math.min(player.x - CANVAS_W / 3, WORLD_W - CANVAS_W));
+}
 
 function createPlayer() {
   return {
@@ -573,6 +620,10 @@ window.addEventListener("keydown", e => {
   if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyJ"]) {
     autoPilot = !autoPilot;
     if (autoPilot && state.phase === "playing") state.lives = 999;
+    e.preventDefault();
+  }
+  if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
+    skipTesterForward500();
     e.preventDefault();
   }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
