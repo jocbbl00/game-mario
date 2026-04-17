@@ -261,15 +261,17 @@ function buildUndergroundBonus() {
 
   const exitX = UW - TILE * 2 - 60;
   const pipeW = TILE * 2;
-  const stemLen = 210;
-  brick(exitX, TILE, 8, stemLen);
-  brick(exitX + pipeW - 8, TILE, 8, stemLen);
+  // Short stem: mouth stays at ceiling; Mario must jump to the lip (not a tall tube to mid-screen).
+  const stemLen = 72;
+  const exitPipeH = stemLen + TILE * 2;
+  brick(exitX, TILE, 8, stemLen + TILE);
+  brick(exitX + pipeW - 8, TILE, 8, stemLen + TILE);
 
   const pipes = [{
     x: exitX,
     y: 0,
     w: pipeW,
-    h: stemLen + TILE * 2,
+    h: exitPipeH,
     warpUp: true,
     ceilingExit: true,
   }];
@@ -358,9 +360,12 @@ function tryPipeWarpExit() {
     state.pipeWarpAnim = {
       kind: "up",
       elapsed: 0,
-      dur: 0.88,
+      dur: 0.58,
       pipe,
+      startY: player.y,
+      endY: pipe.y - player.h - 16,
     };
+    player.x = pipe.x + pipe.w / 2 - player.w / 2;
     player.vx = 0;
     player.vy = 0;
     return;
@@ -395,12 +400,15 @@ function updatePipeWarpAnim(dt) {
     }
   } else if (w.kind === "up") {
     w.elapsed += dt;
+    const p = w.pipe;
+    const u = Math.min(1, w.elapsed / w.dur);
+    const s = u * u * (3 - 2 * u);
+    player.y = w.startY + (w.endY - w.startY) * s;
+    player.x = p.x + p.w / 2 - player.w / 2;
     player.vx = 0;
     player.vy = 0;
-    player.y -= 460 * dt;
-    const suckedIn = player.y + player.h < w.pipe.y + 22;
-    const timedOut = w.elapsed >= w.dur;
-    if (suckedIn || timedOut) {
+    player.onGround = false;
+    if (u >= 1) {
       exitUnderground();
       state.pipeWarpAnim = null;
       pipeWarpLockUntil = performance.now() + 500;
@@ -1995,13 +2003,23 @@ function drawPipe(pipe) {
   const sx = pipe.x - camX;
   if (sx + pipe.w < 0 || sx > CANVAS_W) return;
   if (pipe.warpDown || pipe.warpUp) {
-    ctx.fillStyle = "#1b5e20";
-    ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
-    ctx.fillStyle = "#145214";
-    ctx.fillRect(sx, pipe.y, pipe.w, TILE);
-    ctx.fillStyle = "#0d3810";
-    ctx.fillRect(sx + 4, pipe.y, 8, TILE);
-    ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
+    if (pipe.ceilingExit) {
+      ctx.fillStyle = "#6a1c1c";
+      ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
+      ctx.fillStyle = "#4a0f0f";
+      ctx.fillRect(sx, pipe.y, pipe.w, TILE);
+      ctx.fillStyle = "#300808";
+      ctx.fillRect(sx + 4, pipe.y, 8, TILE);
+      ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
+    } else {
+      ctx.fillStyle = "#1b5e20";
+      ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
+      ctx.fillStyle = "#145214";
+      ctx.fillRect(sx, pipe.y, pipe.w, TILE);
+      ctx.fillStyle = "#0d3810";
+      ctx.fillRect(sx + 4, pipe.y, 8, TILE);
+      ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
+    }
     return;
   }
   ctx.fillStyle = "#2e7d32";
@@ -2144,7 +2162,7 @@ function drawFlag() {
 function drawPipeWarpVignette() {
   const w = state.pipeWarpAnim;
   if (!w || !player) return;
-  if (w.kind === "down") {
+  if (w.kind === "down" || w.kind === "up") {
     const u = Math.min(1, w.elapsed / w.dur);
     const g = ctx.createRadialGradient(CANVAS_W / 2, CANVAS_H / 2, 40, CANVAS_W / 2, CANVAS_H / 2, 440);
     g.addColorStop(0, `rgba(0,0,0,${u * 0.2})`);
@@ -2159,23 +2177,6 @@ function drawPipeWarpVignette() {
       ctx.beginPath();
       ctx.arc(px, py, 12 + k * 18 + (w.elapsed * 40) % 24, 0, Math.PI * 2);
       ctx.stroke();
-    }
-  } else if (w.kind === "up") {
-    const u = Math.min(1, w.elapsed / w.dur);
-    ctx.fillStyle = `rgba(0,0,0,${0.25 + u * 0.4})`;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    const px = player.x - camX + player.w / 2;
-    const py = player.y + player.h / 2;
-    const spin = w.elapsed * 7;
-    for (let i = 0; i < 10; i++) {
-      const ang = (i / 10) * Math.PI * 2 + spin;
-      const r = 24 + (i % 4) * 10;
-      const sx = px + Math.cos(ang) * r;
-      const sy = py + Math.sin(ang) * r * 0.85;
-      ctx.fillStyle = `rgba(255,235,140,${0.75 - u * 0.35})`;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 4 + (i % 2), 0, Math.PI * 2);
-      ctx.fill();
     }
   }
 }
