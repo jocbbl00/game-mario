@@ -118,6 +118,10 @@ serve(async (req) => {
     return fail("insert failed", 500);
   }
 
+  // --- Cap table at 1000 rows (keep highest scores; tie-break by newest) ---
+  const { error: trimErr } = await supabase.rpc("trim_mario_scores_to_max");
+  if (trimErr) console.warn("trim_mario_scores_to_max:", trimErr);
+
   // --- Compute rank ---
   const { count } = await supabase
     .from("mario_scores")

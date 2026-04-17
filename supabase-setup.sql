@@ -71,6 +71,29 @@ create policy "scores_no_direct_delete"
   to anon, authenticated using (false);
 
 -- ============================================================
+-- Keep leaderboard table bounded (top 1000 scores by score, then recency)
+-- Called by submit-score Edge Function after each insert.
+-- ============================================================
+create or replace function public.trim_mario_scores_to_max()
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  delete from public.mario_scores
+  where id in (
+    select id from (
+      select id,
+        row_number() over (order by score desc, created_at desc) as rn
+      from public.mario_scores
+    ) t
+    where rn > 1000
+  );
+$$;
+
+grant execute on function public.trim_mario_scores_to_max() to service_role;
+
+-- ============================================================
 -- SESSION_SECRET setup (run in Supabase dashboard > Edge Functions > Secrets)
 -- supabase secrets set SESSION_SECRET="your-random-64-char-string-here"
 --

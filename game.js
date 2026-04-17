@@ -25,7 +25,7 @@ const JUMP_POWER_SEC = 5;
 const SUPER_JUMP_FORCE = -20;          // green mushroom: higher jump
 const RESPAWN_INVINCIBLE_MS = 3000;
 const SEASON_DURATION_SEC = 10;
-const UNDERGROUND_BONUS_W = 1280;
+const UNDERGROUND_BONUS_W = 3000;
 
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
@@ -216,7 +216,7 @@ function getWorldWidth() {
   return WORLD_W;
 }
 
-// One dark blue warp pipe per stage segment (no extra RNG — post-pass only).
+// One dark green warp pipe per stage segment (no extra RNG — post-pass only).
 function markWarpPipes(lv) {
   for (const p of lv.pipes) p.warpDown = false;
   for (let seg = 0; seg < NUM_LEVELS; seg++) {
@@ -237,22 +237,47 @@ function buildUndergroundBonus() {
     groundSet.add(x);
     platforms.push({ x, y: GROUND_Y, w: TILE, h: TILE * 3, type: "ground" });
   }
-  platforms.push({ x: 260, y: GROUND_Y - 100, w: 200, h: TILE, type: "brick" });
-  platforms.push({ x: 520, y: GROUND_Y - 155, w: 120, h: TILE, type: "brick" });
-  platforms.push({ x: 700, y: GROUND_Y - 115, w: 160, h: TILE, type: "brick" });
-  const pipeh = TILE * 3;
-  const exitX = UW - TILE * 2 - 40;
+  const brick = (x, y, w, h = TILE) => {
+    platforms.push({ x, y, w, h, type: "brick" });
+  };
+  // Longer route: varied heights and gaps (left → right, then up to ceiling exit)
+  brick(200, GROUND_Y - 85, 180);
+  brick(440, GROUND_Y - 135, 150);
+  brick(640, GROUND_Y - 95, 200);
+  brick(900, GROUND_Y - 175, 170);
+  brick(1120, GROUND_Y - 125, 130);
+  brick(1320, GROUND_Y - 205, 180);
+  brick(1560, GROUND_Y - 155, 140);
+  brick(1780, GROUND_Y - 235, 160);
+  brick(2000, GROUND_Y - 185, 120);
+  brick(2180, GROUND_Y - 265, 150);
+  brick(2360, GROUND_Y - 225, 100);
+  brick(2520, GROUND_Y - 305, 130);
+  brick(2680, GROUND_Y - 365, 110);
+  brick(2820, GROUND_Y - 405, 100);
+
+  const exitX = UW - TILE * 2 - 60;
+  const pipeW = TILE * 2;
+  const stemLen = 210;
+  brick(exitX, TILE, 8, stemLen);
+  brick(exitX + pipeW - 8, TILE, 8, stemLen);
+
   const pipes = [{
     x: exitX,
-    y: GROUND_Y - pipeh,
-    w: TILE * 2,
-    h: pipeh + TILE * 3,
+    y: 0,
+    w: pipeW,
+    h: stemLen + TILE * 2,
     warpUp: true,
+    ceilingExit: true,
   }];
   const coins = [
-    { x: 340, y: GROUND_Y - 130, r: false, bonusOnly: true },
-    { x: 560, y: GROUND_Y - 185, r: false, bonusOnly: true },
-    { x: 780, y: GROUND_Y - 145, r: false, bonusOnly: true },
+    { x: 320, y: GROUND_Y - 125, r: false, bonusOnly: true },
+    { x: 540, y: GROUND_Y - 175, r: false, bonusOnly: true },
+    { x: 780, y: GROUND_Y - 115, r: false, bonusOnly: true },
+    { x: 1020, y: GROUND_Y - 215, r: false, bonusOnly: true },
+    { x: 1420, y: GROUND_Y - 235, r: false, bonusOnly: true },
+    { x: 1860, y: GROUND_Y - 255, r: false, bonusOnly: true },
+    { x: 2280, y: GROUND_Y - 295, r: false, bonusOnly: true },
   ];
   return {
     platforms,
@@ -267,23 +292,8 @@ function buildUndergroundBonus() {
     enemyCount: 0,
     undergroundWidth: UW,
     isUnderground: true,
+    bonusStarTotal: coins.length,
   };
-}
-
-function enterUnderground(fromPipe) {
-  if (performance.now() < pipeWarpLockUntil) return;
-  surfaceLevelRef = level;
-  surfaceSave = { camX, pipe: fromPipe };
-  level = buildUndergroundBonus();
-  player.x = 70;
-  player.y = GROUND_Y - PLAYER_H;
-  player.vx = 0;
-  player.vy = 0;
-  camX = 0;
-  fireballs = [];
-  state.layer = "underground";
-  pipeWarpLockUntil = performance.now() + 500;
-  addPopup(CANVAS_W / 2, 100, "BONUS ROOM");
 }
 
 function exitUnderground() {
@@ -304,6 +314,7 @@ function exitUnderground() {
 function tryPipeWarpEnter() {
   if (state.layer !== "surface" || !level || !player) return;
   if (performance.now() < pipeWarpLockUntil) return;
+  if (state.pipeWarpAnim) return;
   if (!keys["ArrowDown"] && !keys["KeyS"]) return;
   for (const pipe of level.pipes) {
     if (!pipe.warpDown) continue;
@@ -312,7 +323,19 @@ function tryPipeWarpEnter() {
     if (Math.abs(feet - pipe.y) > 10) continue;
     const hc = player.x + player.w / 2;
     if (hc < pipe.x + 10 || hc > pipe.x + pipe.w - 10) continue;
-    enterUnderground(pipe);
+    surfaceLevelRef = level;
+    surfaceSave = { camX, pipe };
+    const endY = Math.min(pipe.y + TILE + 96, pipe.y + pipe.h - 28);
+    state.pipeWarpAnim = {
+      kind: "down",
+      elapsed: 0,
+      dur: 0.58,
+      pipe,
+      startY: player.y,
+      endY,
+    };
+    player.vx = 0;
+    player.vy = 0;
     return;
   }
 }
@@ -320,12 +343,65 @@ function tryPipeWarpEnter() {
 function tryPipeWarpExit() {
   if (state.layer !== "underground" || !level || !player) return;
   if (performance.now() < pipeWarpLockUntil) return;
-  if (!keys["ArrowUp"] && !keys["KeyW"] && !keys["Space"]) return;
+  if (state.pipeWarpAnim) return;
   for (const pipe of level.pipes) {
-    if (!pipe.warpUp) continue;
-    if (!overlap(player.x, player.y, player.w, player.h, pipe.x - 4, GROUND_Y - 50, pipe.w + 8, 50)) continue;
-    exitUnderground();
+    if (!pipe.warpUp || !pipe.ceilingExit) continue;
+    const mouthX = pipe.x + 8;
+    const mouthW = pipe.w - 16;
+    const mouthY = pipe.y;
+    const mouthH = TILE + 14;
+    if (!overlap(player.x, player.y, player.w, player.h, mouthX, mouthY, mouthW, mouthH)) continue;
+    if (player.vy >= -0.45) continue;
+    state.pipeWarpAnim = {
+      kind: "up",
+      elapsed: 0,
+      dur: 0.88,
+      pipe,
+    };
+    player.vx = 0;
+    player.vy = 0;
     return;
+  }
+}
+
+function updatePipeWarpAnim(dt) {
+  const w = state.pipeWarpAnim;
+  if (!w || !player) return;
+  if (w.kind === "down") {
+    w.elapsed += dt;
+    const p = w.pipe;
+    const u = Math.min(1, w.elapsed / w.dur);
+    const s = u * u * (3 - 2 * u);
+    player.y = w.startY + (w.endY - w.startY) * s;
+    player.x = p.x + p.w / 2 - player.w / 2;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = false;
+    if (u >= 1) {
+      level = buildUndergroundBonus();
+      player.x = 70;
+      player.y = GROUND_Y - PLAYER_H;
+      player.vx = 0;
+      player.vy = 0;
+      camX = 0;
+      fireballs = [];
+      state.layer = "underground";
+      state.pipeWarpAnim = null;
+      pipeWarpLockUntil = performance.now() + 500;
+      addPopup(CANVAS_W / 2, 100, "BONUS ROOM");
+    }
+  } else if (w.kind === "up") {
+    w.elapsed += dt;
+    player.vx = 0;
+    player.vy = 0;
+    player.y -= 460 * dt;
+    const suckedIn = player.y + player.h < w.pipe.y + 22;
+    const timedOut = w.elapsed >= w.dur;
+    if (suckedIn || timedOut) {
+      exitUnderground();
+      state.pipeWarpAnim = null;
+      pipeWarpLockUntil = performance.now() + 500;
+    }
   }
 }
 
@@ -445,6 +521,8 @@ const state = {
   flagsPassed   : 0,    // checkpoints cleared (0..10); win at 10
   layer         : "surface", // surface | underground (bonus room)
   bonusStars    : 0,    // decorative pickups in bonus (not sent to leaderboard math)
+  lastRank      : null, // leaderboard rank from last submit (#N)
+  pipeWarpAnim  : null, // { kind: 'down'|'up', ... } — blocks normal physics while active
 };
 
 let level   = null;
@@ -547,6 +625,7 @@ function overlap(ax, ay, aw, ah, bx, by, bw, bh) {
 
 function resolveVsBoxes(boxes) {
   for (const b of boxes) {
+    if (b.ceilingExit) continue;
     if (!overlap(player.x, player.y, player.w, player.h, b.x, b.y, b.w, b.h)) continue;
     const oL = (player.x + player.w) - b.x;
     const oR = (b.x + b.w) - player.x;
@@ -639,6 +718,11 @@ function update(dt) {
   if (state.phase !== "playing") return;
 
   coinSpin += dt * 4;
+
+  if (state.pipeWarpAnim) {
+    updatePipeWarpAnim(dt);
+    return;
+  }
 
   const spMult = getLevelSpeedMult();
   const gMult  = getGravityMult();
@@ -1840,11 +1924,11 @@ function drawPipe(pipe) {
   const sx = pipe.x - camX;
   if (sx + pipe.w < 0 || sx > CANVAS_W) return;
   if (pipe.warpDown || pipe.warpUp) {
-    ctx.fillStyle = "#1565c0";
+    ctx.fillStyle = "#1b5e20";
     ctx.fillRect(sx + 4, pipe.y + TILE, pipe.w - 8, pipe.h - TILE);
-    ctx.fillStyle = "#0d47a1";
+    ctx.fillStyle = "#145214";
     ctx.fillRect(sx, pipe.y, pipe.w, TILE);
-    ctx.fillStyle = "#082f5c";
+    ctx.fillStyle = "#0d3810";
     ctx.fillRect(sx + 4, pipe.y, 8, TILE);
     ctx.fillRect(sx + 4, pipe.y + TILE, 5, pipe.h - TILE);
     return;
@@ -1986,6 +2070,45 @@ function drawFlag() {
   }
 }
 
+function drawPipeWarpVignette() {
+  const w = state.pipeWarpAnim;
+  if (!w || !player) return;
+  if (w.kind === "down") {
+    const u = Math.min(1, w.elapsed / w.dur);
+    const g = ctx.createRadialGradient(CANVAS_W / 2, CANVAS_H / 2, 40, CANVAS_W / 2, CANVAS_H / 2, 440);
+    g.addColorStop(0, `rgba(0,0,0,${u * 0.2})`);
+    g.addColorStop(1, `rgba(0,0,0,${u * 0.72})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    const px = player.x - camX + player.w / 2;
+    const py = player.y + player.h / 2;
+    ctx.strokeStyle = `rgba(100,200,255,${0.35 * u})`;
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath();
+      ctx.arc(px, py, 12 + k * 18 + (w.elapsed * 40) % 24, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else if (w.kind === "up") {
+    const u = Math.min(1, w.elapsed / w.dur);
+    ctx.fillStyle = `rgba(0,0,0,${0.25 + u * 0.4})`;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    const px = player.x - camX + player.w / 2;
+    const py = player.y + player.h / 2;
+    const spin = w.elapsed * 7;
+    for (let i = 0; i < 10; i++) {
+      const ang = (i / 10) * Math.PI * 2 + spin;
+      const r = 24 + (i % 4) * 10;
+      const sx = px + Math.cos(ang) * r;
+      const sy = py + Math.sin(ang) * r * 0.85;
+      ctx.fillStyle = `rgba(255,235,140,${0.75 - u * 0.35})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4 + (i % 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
 function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.fillRect(0, 0, CANVAS_W, 56);
@@ -2022,15 +2145,16 @@ function drawHUD() {
   ctx.font = "9px 'Courier New'";
   ctx.textAlign = "center";
   if (state.layer === "underground") {
-    ctx.fillText("BONUS   [ \u2191 ] exit pipe    [ \u2190 ] [ \u2192 ] move    [ Space ] jump", CANVAS_W / 2, 44);
+    ctx.fillText("BONUS   jump into ceiling pipe to exit    [ \u2190 ] [ \u2192 ]    [ Space ] jump", CANVAS_W / 2, 44);
     ctx.fillStyle = "#90caf9";
     ctx.font = "9px 'Courier New'";
-    ctx.fillText(`Stars ${state.bonusStars}/3`, CANVAS_W / 2, 52);
+    const cap = level && level.bonusStarTotal != null ? level.bonusStarTotal : 3;
+    ctx.fillText(`Stars ${state.bonusStars}/${cap}`, CANVAS_W / 2, 52);
   } else {
     ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 44);
     ctx.fillStyle = "#78909c";
     ctx.font = "8px 'Courier New'";
-    ctx.fillText("Dark blue pipe: stand on top + [ \u2193 ] bonus", CANVAS_W / 2, 52);
+    ctx.fillText("Dark green pipe: stand on top + [ \u2193 ] bonus", CANVAS_W / 2, 52);
   }
 
   ctx.fillStyle = "#9ccc65";
@@ -2166,6 +2290,7 @@ function render() {
     drawFlag();
   }
   if (player) drawPlayer();
+  drawPipeWarpVignette();
   drawHUD();
   drawPopups();
 
@@ -2180,6 +2305,7 @@ function render() {
       { text: `Score: ${state.score}` },
       { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
       ...(statusText ? [{ text: statusText, color: statusColor }] : []),
+      ...(done && state.lastRank != null ? [{ text: `You rank #${state.lastRank}`, color: "#90caf9" }] : []),
     ], done);
   }
 
@@ -2189,6 +2315,7 @@ function render() {
       { text: `Final Score: ${state.score}` },
       { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
       ...(statusText ? [{ text: statusText, color: statusColor }] : []),
+      ...(done && state.lastRank != null ? [{ text: `You rank #${state.lastRank}`, color: "#90caf9" }] : []),
     ], done);
   }
 }
@@ -2245,6 +2372,7 @@ async function startSession() {
 
 async function submitScore() {
   state.phase = "submitting";
+  state.lastRank = null;
 
   if (state.sessionToken) {
     try {
@@ -2270,7 +2398,7 @@ async function submitScore() {
       });
       clearTimeout(timeout);
       const result = await res.json();
-      if (result.rank) console.log(`Leaderboard rank: #${result.rank}`);
+      if (res.ok && result.rank != null) state.lastRank = result.rank;
     } catch (e) {
       console.warn("submitScore failed:", e.message);
     }
@@ -2343,6 +2471,8 @@ async function startGame() {
   state.flagsPassed    = 0;
   state.layer          = "surface";
   state.bonusStars     = 0;
+  state.lastRank       = null;
+  state.pipeWarpAnim   = null;
   surfaceLevelRef      = null;
   surfaceSave          = null;
   fireballs            = [];
@@ -2358,6 +2488,8 @@ function resetToStart() {
   state.phase        = "start";
   state.sessionId    = null;
   state.sessionToken = null;
+  state.lastRank     = null;
+  state.pipeWarpAnim = null;
   keys["Space"] = false;
   keys["KeyA"]  = false;
 }
