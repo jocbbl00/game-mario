@@ -106,8 +106,19 @@ function computeLevelStats(seed: number): { coinCount: number; enemyCount: numbe
     rng(); // qy
   }
 
-  // maxScore = coins + enemies + win clear + max time + max per-segment flag bonuses (9×500)
-  const maxScore = coinCount * 100 + enemyCount * 200 + 2500 + 2000 + 4500;
+  // Bonus underground stars: 10 pts each; max stars per layout matches game.js buildUndergroundBonus coinSpecs.
+  const bonusStarTotal =
+    7 + 7 + 7 + 8 + 7 + 8 + 8 + 9 + 7 + 9;
+  const bonusStarScoreMax = bonusStarTotal * 10;
+
+  // maxScore = coins + enemies + win clear + max time + max per-segment flag bonuses (9×500) + all bonus stars
+  const maxScore =
+    coinCount * 100 +
+    enemyCount * 200 +
+    2500 +
+    2000 +
+    4500 +
+    bonusStarScoreMax;
   return { coinCount, enemyCount, maxScore };
 }
 

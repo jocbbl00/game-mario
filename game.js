@@ -1197,7 +1197,8 @@ function update(dt) {
       c.r = true;
       if (c.bonusOnly) {
         state.bonusStars++;
-        addPopup(c.x - camX, c.y, "\u2605 BONUS");
+        state.score += 10;
+        addPopup(c.x - camX, c.y, "+10");
       } else {
         state.coinsCollected++;
         state.score += 100;
@@ -2555,7 +2556,7 @@ function drawHUD() {
     ctx.fillStyle = "#90caf9";
     ctx.font = "9px 'Courier New'";
     const cap = level && level.bonusStarTotal != null ? level.bonusStarTotal : 3;
-    ctx.fillText(`Stars ${state.bonusStars}/${cap}`, CANVAS_W / 2, 52);
+    ctx.fillText(`Stars ${state.bonusStars}/${cap} (+10 score each)`, CANVAS_W / 2, 52);
   } else {
     ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 44);
     ctx.fillStyle = "#78909c";
