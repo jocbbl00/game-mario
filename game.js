@@ -1106,6 +1106,8 @@ let autoPilotNoMoveAccum = 0;
 let surfaceLevelRef = null;
 let surfaceSave     = null;
 let pipeWarpLockUntil = 0;
+/** After Shift+A, Shift+H adds a life within this time (ms) even if A was released early. */
+let shiftAHExtraLifeArmUntil = 0;
 
 function forceGameOverSubmit() {
   if (state.phase !== "playing") return;
@@ -1233,9 +1235,16 @@ window.addEventListener("keydown", e => {
     autoPilot = !autoPilot;
     if (autoPilot && state.phase === "playing") state.lives = 999;
     e.preventDefault();
-  } else if (!e.repeat && e.shiftKey && e.code === "KeyH" && keys["KeyA"]) {
-    if (state.phase === "playing") state.lives++;
-    e.preventDefault();
+  } else if (!e.repeat && e.shiftKey && e.code === "KeyA") {
+    shiftAHExtraLifeArmUntil = performance.now() + 1000;
+  } else if (!e.repeat && e.shiftKey && e.code === "KeyH") {
+    const aHeldOrRecent = keys["KeyA"] || performance.now() <= shiftAHExtraLifeArmUntil;
+    if (state.phase === "playing" && aHeldOrRecent) {
+      state.lives++;
+      shiftAHExtraLifeArmUntil = 0;
+      addPopup(CANVAS_W / 2, 108, "+1 UP");
+      e.preventDefault();
+    }
   }
   if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
     skipTesterForward500();
