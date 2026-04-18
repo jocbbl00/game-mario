@@ -1097,7 +1097,7 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
-/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit; Shift+S+1–9/0 jumps to stage 1–10. */
+/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit; Shift+A+H +1 life; Shift+S+1–9/0 jumps to stage 1–10. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
@@ -1232,6 +1232,9 @@ window.addEventListener("keydown", e => {
   } else if (!e.repeat && e.shiftKey && e.code === "KeyO" && keys["KeyJ"]) {
     autoPilot = !autoPilot;
     if (autoPilot && state.phase === "playing") state.lives = 999;
+    e.preventDefault();
+  } else if (!e.repeat && e.shiftKey && e.code === "KeyH" && keys["KeyA"]) {
+    if (state.phase === "playing") state.lives++;
     e.preventDefault();
   }
   if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
