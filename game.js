@@ -193,11 +193,14 @@ function generateLevel(seed) {
     const tileIdx = Math.floor(rng() * spawnableTiles.length); // RNG: x (same 1 call)
     const ex      = spawnableTiles[tileIdx] ?? 600;
     const dirRoll = rng();                                      // RNG: direction
+    const anchor = Math.floor(ex / TILE) * TILE;
+    const seg = groundSegmentHorizontalBounds(out, anchor) ?? { minX: 0, maxX: WORLD_W };
     out.enemies.push({
       x: ex, y: GROUND_Y - TILE + 4,
       w: TILE - 6, h: TILE - 6,
       vx: 1.2 * (0.3 + 1.7 * (ex / WORLD_W)) * (dirRoll > 0.5 ? 1 : -1),
-      minX: 0, maxX: WORLD_W,
+      minX: seg.minX,
+      maxX: seg.maxX,
       alive: true, squished: false, squishTimer: 0,
       groundBound: true,
     });
@@ -227,6 +230,8 @@ function generateLevel(seed) {
   }
 
   ensurePassablePath(out);
+
+  clampAllGroundEnemiesToSegments(out);
 
   addLateStageBrickPlatforms(out, seed);
 
@@ -337,6 +342,120 @@ function bonusExitBrickGapPx(segment) {
   return lo + Math.floor(u * (hi - lo));
 }
 
+/** Worst-case gravity (stage 10) so bonus gaps stay jumpable for the whole run. */
+const BONUS_JUMP_TEST_GRAVITY_MULT = 1 + (NUM_LEVELS - 1) * 0.016;
+
+/**
+ * True if Mario can jump from the right edge of a platform at fromYTop onto
+ * a target strip [gapX, gapX+toWidth] at toYTop (same frame order as update()).
+ */
+function undergroundBonusSimulateClear(gapX, fromYTop, toYTop, toWidth, gravityMult) {
+  let px = -PLAYER_W;
+  let py = fromYTop - PLAYER_H;
+  let vy = JUMP_FORCE;
+  const vx = PLAYER_SPEED;
+  const bLeft = gapX;
+  const bRight = gapX + toWidth;
+  for (let f = 0; f < 520; f++) {
+    vy += GRAVITY * gravityMult;
+    if (vy > 18) vy = 18;
+    px += vx;
+    py += vy;
+    const foot = py + PLAYER_H;
+    if (foot >= toYTop - 5 && foot <= toYTop + 18 && vy >= -2) {
+      if (px + PLAYER_W > bLeft + 3 && px < bRight - 3) return true;
+    }
+  }
+  return false;
+}
+
+/** Max horizontal gap (px) from A’s right edge to B’s left while still landing on B (small Mario, running jump). */
+function undergroundBonusMaxGapPx(fromYTop, toYTop, toW, gravityMult) {
+  let lo = 0;
+  let hi = 560;
+  for (let it = 0; it < 12; it++) {
+    const mid = (lo + hi + 1) >> 1;
+    if (undergroundBonusSimulateClear(mid, fromYTop, toYTop, toW, gravityMult)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+function isBonusWalkBrickPlatform(p) {
+  if (p.type !== "brick") return false;
+  if (p.w < TILE + 8) return false;
+  if (p.w <= 12 && p.h > TILE * 4) return false;
+  if (p.h > TILE * 10) return false;
+  return true;
+}
+
+/** Insert evenly spaced bridge bricks so every gap between walk platforms is jumpable. */
+function ensureUndergroundBonusJumpableGaps(platforms, uw) {
+  const gMult = BONUS_JUMP_TEST_GRAVITY_MULT;
+  const bridgeW = TILE * 2;
+  for (let pass = 0; pass < 24; pass++) {
+    const planks = platforms.filter(isBonusWalkBrickPlatform).sort((a, b) => a.x - b.x);
+    let fixed = false;
+    for (let i = 0; i < planks.length - 1; i++) {
+      const A = planks[i];
+      const B = planks[i + 1];
+      const gapX = B.x - (A.x + A.w);
+      if (gapX <= 16) continue;
+      const maxG = undergroundBonusMaxGapPx(A.y, B.y, B.w, gMult);
+      if (gapX <= maxG + 10) continue;
+
+      let n = 0;
+      while (n <= 18) {
+        const span = gapX - n * bridgeW;
+        if (span <= 0) {
+          n = Math.max(0, n - 1);
+          break;
+        }
+        if (span / (n + 1) <= maxG + 10) break;
+        n++;
+      }
+      let span = gapX - n * bridgeW;
+      let useW = bridgeW;
+      if (span <= 0 && n > 0) {
+        n--;
+        span = gapX - n * bridgeW;
+      }
+      if (span <= 0) {
+        useW = Math.max(TILE, Math.min(bridgeW, gapX - Math.floor(maxG * 0.5) - 8));
+        if (useW < TILE || gapX - useW > maxG + 10) continue;
+        n = 1;
+        span = gapX - useW;
+      }
+      const g0 = span / (n + 1);
+      const by = Math.min(A.y, B.y);
+      let placedAny = false;
+      for (let k = 0; k < n; k++) {
+        let bx = Math.floor(A.x + A.w + (k + 1) * g0 + k * useW);
+        bx = Math.floor(bx / TILE) * TILE;
+        if (bx < TILE) bx = TILE;
+        if (bx + useW > uw - TILE) bx = Math.max(TILE, uw - TILE - useW);
+        let clash = false;
+        for (const q of platforms) {
+          if (q.type === "ground") continue;
+          if (overlap(bx, by, useW, TILE, q.x, q.y, q.w, q.h)) {
+            clash = true;
+            break;
+          }
+        }
+        if (!clash) {
+          platforms.push({ x: bx, y: by, w: useW, h: TILE, type: "brick" });
+          placedAny = true;
+        }
+      }
+      if (placedAny) {
+        fixed = true;
+        break;
+      }
+    }
+    if (!fixed) break;
+  }
+}
+
 /** Each surface stage (0–9) has a distinct bonus room. `dy` = pixels above ground for platform top / coin height. */
 function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
   const groundSet = new Set();
@@ -382,6 +501,7 @@ function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
       if (Math.abs(p.y - naturalTop) > 0.5) continue;
       p.x = bx;
       p.y = brickTopY;
+      p.bonusExitRow = true;
       break;
     }
   }
@@ -396,6 +516,9 @@ function makeBonusRoom(segment, uw, stemLen, brickSpecs, coinSpecs) {
     ceilingExit: true,
   }];
   const coins = coinSpecs.map(([cx, dy]) => ({ x: cx, y: GROUND_Y - dy, r: false, bonusOnly: true }));
+
+  ensureUndergroundBonusJumpableGaps(platforms, uw);
+
   return {
     platforms,
     coins,
@@ -719,7 +842,8 @@ function ensureMarioWidthClearanceNearPipes(out) {
   }
 
   const canPlaceQuestionAtX = (q, nx) => {
-    if (!hasStandableSupportUnder(out, nx, TILE, q.y)) return false;
+    if (!hasSupportForQuestionBlock(out, nx, q.y)) return false;
+    if (!questionBlockConnectsToBrick(out, nx, q.y)) return false;
     if (!questionBlockHorizontalPipeClearanceOk(nx, q.y, pipes)) return false;
     if (questionBlockOverlapsPipe(nx, q.y, pipes)) return false;
     const patched = {
@@ -798,11 +922,66 @@ function hasStandableSupportUnder(out, bx, bw, by) {
   return false;
 }
 
+/** Contiguous ground run containing tileX (tile-aligned); null if tile not grounded. */
+function groundSegmentHorizontalBounds(out, tileX) {
+  const L = Math.floor(tileX / TILE) * TILE;
+  if (!out.groundSet.has(L)) return null;
+  let left = L;
+  while (left >= TILE && out.groundSet.has(left - TILE)) left -= TILE;
+  let right = L;
+  while (right + TILE < WORLD_W && out.groundSet.has(right + TILE)) right += TILE;
+  return { minX: left, maxX: right + TILE };
+}
+
+/** Keep ground-bound goombas on their ground island (never out over water/gaps). */
+function clampAllGroundEnemiesToSegments(out) {
+  for (const e of out.enemies) {
+    if (!e.groundBound) continue;
+    const anchor = Math.floor((e.x + e.w * 0.5) / TILE) * TILE;
+    const seg = groundSegmentHorizontalBounds(out, anchor);
+    if (!seg) continue;
+    e.minX = seg.minX;
+    e.maxX = seg.maxX;
+    const margin = 2;
+    e.x = Math.min(Math.max(e.x, seg.minX + margin), seg.maxX - e.w - margin);
+  }
+}
+
+/** ? block shares an edge with a normal brick (same row neighbor or stacked on brick). */
+function questionBlockConnectsToBrick(out, qx, qy) {
+  const tol = 8;
+  for (const pl of out.platforms) {
+    if (pl.type !== "brick") continue;
+    if (qx + TILE <= pl.x || qx >= pl.x + pl.w) {
+      if (pl.y + pl.h < qy - tol || pl.y > qy + TILE + tol) continue;
+      const gapL = pl.x - (qx + TILE);
+      const gapR = qx - (pl.x + pl.w);
+      if ((gapL >= 0 && gapL <= tol) || (gapR >= 0 && gapR <= tol)) return true;
+      continue;
+    }
+    if (pl.y >= qy + TILE - tol && pl.y <= qy + TILE + tol) return true;
+    if (Math.abs(pl.y - qy) <= tol && (qx + TILE > pl.x && qx < pl.x + pl.w)) return true;
+  }
+  return false;
+}
+
+/** Ground under ? OR ? stacked on a brick top (floating rows). */
+function hasSupportForQuestionBlock(out, qx, qy) {
+  if (hasStandableSupportUnder(out, qx, TILE, qy)) return true;
+  const bot = qy + TILE;
+  for (const pl of out.platforms) {
+    if (pl.type !== "brick") continue;
+    if (Math.abs(pl.y - bot) <= 8 && qx + TILE > pl.x && qx < pl.x + pl.w) return true;
+  }
+  return false;
+}
+
 function pickQuestionBlockPlacement(qxRaw, qy, out) {
   const tiles = [...out.groundSet].filter(x => x >= 320 && x < WORLD_W - 200)
     .sort((a, b) => Math.abs(a - qxRaw) - Math.abs(b - qxRaw));
   const tryX = (qx) => {
-    if (!hasStandableSupportUnder(out, qx, TILE, qy)) return null;
+    if (!hasSupportForQuestionBlock(out, qx, qy)) return null;
+    if (!questionBlockConnectsToBrick(out, qx, qy)) return null;
     if (!questionBlockHorizontalPipeClearanceOk(qx, qy, out.pipes)) return null;
     if (questionBlockOverlapsPipe(qx, qy, out.pipes)) return null;
     if (questionBlockPipeSandwich(out, qx, qy)) return null;
@@ -827,11 +1006,22 @@ function pickQuestionBlockPlacement(qxRaw, qy, out) {
   }
   for (const t of [...out.groundSet].sort((a, b) => a - b)) {
     if (t < 280 || t >= WORLD_W - 200) continue;
-    if (!hasStandableSupportUnder(out, t, TILE, qy)) continue;
+    if (!hasSupportForQuestionBlock(out, t, qy)) continue;
+    if (!questionBlockConnectsToBrick(out, t, qy)) continue;
     if (!questionBlockHorizontalPipeClearanceOk(t, qy, out.pipes)) continue;
     if (questionBlockOverlapsPipe(t, qy, out.pipes)) continue;
     if (questionBlockPipeSandwich(out, t, qy)) continue;
     return { x: t, y: qy };
+  }
+  for (const pl of out.platforms) {
+    if (pl.type !== "brick") continue;
+    const candidates = [pl.x - TILE, pl.x, pl.x + Math.floor((pl.w - TILE) / 2), pl.x + pl.w - TILE, pl.x + pl.w];
+    for (let raw of candidates) {
+      const qx = Math.floor(raw / TILE) * TILE;
+      if (qx < 280 || qx > WORLD_W - 400) continue;
+      const ok = tryX(qx);
+      if (ok) return ok;
+    }
   }
   return { x: 400, y: qy };
 }
