@@ -39,17 +39,31 @@ function computeLevelStats(seed: number): { coinCeiling: number; enemyCount: num
   const TILE    = 40;
   const WORLD_W = 100000; // 10 segments × 10000 (5× longer world)
   const GROUND_Y = 520; // CANVAS_H - TILE
+  const LEVEL_SEG_W = 10000;
 
   const rng = makeRNG(seed);
   let coinCount  = 0;
   let enemyCount = 0;
 
-  // --- GROUND (advance RNG same as client) ---
+  // --- GROUND (same RNG + tile layout as game.js generateLevel) ---
+  const groundSet = new Set<number>();
   for (let x = 0; x < WORLD_W; x += TILE) {
     const gapRoll = rng();
     if (x > 800 && gapRoll < 0.04 && x < WORLD_W - 600) {
       const sz = Math.floor(rng() * 2 + 1);
       x += TILE * sz;
+      continue;
+    }
+    groundSet.add(x);
+  }
+
+  // --- Fish (deterministic; no RNG) — client increments enemiesDefeated + score on stomp ---
+  let fishCount = 0;
+  for (let x = TILE * 20; x < WORLD_W - TILE * 15; x += TILE) {
+    if (!groundSet.has(x)) {
+      const seg = Math.floor(x / LEVEL_SEG_W);
+      if (seg < 6 && Math.floor(x / TILE) % 2 !== 0) continue;
+      fishCount++;
     }
   }
 
@@ -112,7 +126,9 @@ function computeLevelStats(seed: number): { coinCeiling: number; enemyCount: num
     7 + 7 + 7 + 8 + 7 + 8 + 8 + 9 + 7 + 9;
   const bonusCoinScoreMax = bonusCoinSlots * 100;
 
-  // maxScore = surface coins + enemies + win + time + flags + all possible bonus-coin score
+  enemyCount += fishCount;
+
+  // maxScore = surface coins + enemies (incl. fish) + win + time + flags + all possible bonus-coin score
   const maxScore =
     coinCount * 100 +
     enemyCount * 200 +

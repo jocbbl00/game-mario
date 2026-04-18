@@ -1086,6 +1086,7 @@ const state = {
   layer         : "surface", // surface | underground (bonus room)
   bonusStars    : 0,    // decorative pickups in bonus (not sent to leaderboard math)
   lastRank      : null, // leaderboard rank from last submit (#N)
+  lastSubmitError: null, // set when session missing or submit-score returns an error (shown on overlay)
   pipeWarpAnim  : null, // { kind: 'down'|'up', ... } — blocks normal physics while active
 };
 
@@ -3131,7 +3132,9 @@ function render() {
   const submitting = state.phase === "submitting";
   const done       = state.phase === "done";
   const statusText = submitting ? "Saving score..."
-                   : (sbClient ? "Score saved!" : "");
+                   : state.lastSubmitError
+                     ? ""
+                     : (sbClient ? "Score saved!" : "");
   const statusColor = submitting ? "#ffd700" : "#4caf50";
 
   if (state.phase === "gameover" || (submitting && !state.won) || (done && !state.won)) {
@@ -3139,6 +3142,9 @@ function render() {
       { text: `Score: ${state.score}` },
       { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
       ...(statusText ? [{ text: statusText, color: statusColor }] : []),
+      ...(done && state.lastSubmitError
+        ? [{ text: state.lastSubmitError, color: "#ffb74d" }]
+        : []),
       ...(done && state.lastRank != null ? [{ text: `You rank #${state.lastRank}`, color: "#90caf9" }] : []),
     ], done);
   }
@@ -3149,6 +3155,9 @@ function render() {
       { text: `Final Score: ${state.score}` },
       { text: `Coins: ${state.coinsCollected}   Enemies: ${state.enemiesDefeated}` },
       ...(statusText ? [{ text: statusText, color: statusColor }] : []),
+      ...(done && state.lastSubmitError
+        ? [{ text: state.lastSubmitError, color: "#ffb74d" }]
+        : []),
       ...(done && state.lastRank != null ? [{ text: `You rank #${state.lastRank}`, color: "#90caf9" }] : []),
     ], done);
   }
@@ -3196,8 +3205,12 @@ async function startSession() {
         "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
       },
     });
-    if (!res.ok) throw new Error("session start failed");
-    return await res.json();  // { sessionId, token, seed }
+    if (!res.ok) throw new Error(`session HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || !data.sessionId || !data.token || typeof data.seed !== "number") {
+      throw new Error("session response missing sessionId, token, or seed");
+    }
+    return data;
   } catch (e) {
     console.warn("startSession failed:", e.message);
     return null;
@@ -3207,6 +3220,7 @@ async function startSession() {
 async function submitScore() {
   state.phase = "submitting";
   state.lastRank = null;
+  state.lastSubmitError = null;
 
   const sessionId = state.sessionId;
   const sessionToken = state.sessionToken;
@@ -3242,12 +3256,22 @@ async function submitScore() {
           if (result.rank != null) state.lastRank = result.rank;
         } catch (_) {}
       } else {
+        let errMsg = `Save failed (${res.status})`;
+        try {
+          const j = JSON.parse(text);
+          if (j && j.error) errMsg = String(j.error);
+        } catch (_) {}
+        state.lastSubmitError = errMsg;
         console.warn("submit-score:", res.status, text);
       }
     } catch (e) {
+      state.lastSubmitError =
+        e.name === "AbortError" ? "Save timed out — try again" : (e.message || "Save failed");
       console.warn("submitScore failed:", e.message);
     }
   } else {
+    state.lastSubmitError =
+      "No game session — score not sent. Check network, ad blockers, or that Edge Functions are deployed.";
     console.warn("submitScore: no session token — score not saved. Check start-session Edge Function.");
   }
 
@@ -3336,6 +3360,7 @@ async function startGame() {
   state.layer          = "surface";
   state.bonusStars     = 0;
   state.lastRank       = null;
+  state.lastSubmitError = null;
   state.pipeWarpAnim   = null;
   surfaceLevelRef      = null;
   surfaceSave          = null;
@@ -3358,6 +3383,7 @@ function resetToStart() {
   state.sessionId    = null;
   state.sessionToken = null;
   state.lastRank     = null;
+  state.lastSubmitError = null;
   state.pipeWarpAnim = null;
   keys["Space"] = false;
   keys["KeyA"]  = false;
