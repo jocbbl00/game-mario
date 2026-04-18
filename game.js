@@ -1097,7 +1097,7 @@ let coinSpin = 0;
 let lastTs  = 0;
 let fireballs = [];
 let nameAskedThisPageLoad = false;
-/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit; Shift+A+H +1 life; Shift+S+1–9/0 jumps to stage 1–10. */
+/** Secret test: Shift+J+O toggles autopilot; Shift+J+O+N skips +500px; Shift+G+O game over + score submit; Shift+B+H +1 life (either order); Shift+S+1–9/0 jumps to stage 1–10. */
 let autoPilot = false;
 let autoPilotJumpCooldown = 0;
 let autoPilotRetreatLeft = 0;
@@ -1106,8 +1106,6 @@ let autoPilotNoMoveAccum = 0;
 let surfaceLevelRef = null;
 let surfaceSave     = null;
 let pipeWarpLockUntil = 0;
-/** After Shift+A, Shift+H adds a life within this time (ms) even if A was released early. */
-let shiftAHExtraLifeArmUntil = 0;
 
 function forceGameOverSubmit() {
   if (state.phase !== "playing") return;
@@ -1235,16 +1233,12 @@ window.addEventListener("keydown", e => {
     autoPilot = !autoPilot;
     if (autoPilot && state.phase === "playing") state.lives = 999;
     e.preventDefault();
-  } else if (!e.repeat && e.shiftKey && e.code === "KeyA") {
-    shiftAHExtraLifeArmUntil = performance.now() + 1000;
-  } else if (!e.repeat && e.shiftKey && e.code === "KeyH") {
-    const aHeldOrRecent = keys["KeyA"] || performance.now() <= shiftAHExtraLifeArmUntil;
-    if (state.phase === "playing" && aHeldOrRecent) {
-      state.lives++;
-      shiftAHExtraLifeArmUntil = 0;
-      addPopup(CANVAS_W / 2, 108, "+1 UP");
-      e.preventDefault();
-    }
+  } else if (!e.repeat && e.shiftKey && state.phase === "playing" &&
+      ((e.code === "KeyH" && keys["KeyB"]) || (e.code === "KeyB" && keys["KeyH"]))) {
+    // Shift+B+H (like Shift+G+O): works whether you press B or H first while holding Shift.
+    state.lives++;
+    addPopup(CANVAS_W / 2, 108, "+1 UP");
+    e.preventDefault();
   }
   if (!e.repeat && e.shiftKey && e.code === "KeyN" && keys["KeyJ"] && keys["KeyO"]) {
     skipTesterForward500();
