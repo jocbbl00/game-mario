@@ -222,7 +222,7 @@ function generateLevel(seed) {
   for (let i = 0; i < nQ; i++) {
     const qxRaw = 400 + Math.floor(rng() * (WORLD_W - 800));
     const qy = Math.max(Q_MIN_Y, GROUND_Y - 130 - Math.floor(rng() * 90));
-    const q = pickQuestionBlockPlacement(qxRaw, qy, out);
+    const q = pickQuestionBlockPlacement(qxRaw, qy, out, i);
     out.questionBlocks.push({
       x: q.x, y: q.y, w: TILE, h: TILE,
       emptied: false, bumpTimer: 0,
@@ -777,13 +777,64 @@ function horizontalGapLeftToRight(aL, aR, bL, bR) {
   return -1;
 }
 
-/** True if ? block has at least PLAYER_W horizontal clearance from pipe sides (no overlap, no tight slot). */
-function questionBlockHorizontalPipeClearanceOk(qx, qy, pipes) {
-  for (const pipe of pipes) {
-    if (overlap(qx, qy, TILE, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) return false;
+function verticalRangesOverlap(aTop, aBot, bTop, bBot) {
+  return aTop < bBot && aBot > bTop;
+}
+
+/**
+ * Pipes, bricks, and other ? blocks: in a vertical band around the ? block, any side-by-side
+ * pair must leave at least PLAYER_W horizontal gap (or no solid overlap) so the path stays playable.
+ */
+function questionBlockMarioSidewallClearanceOk(qx, qy, out, selfQ) {
+  const CLEAR = PLAYER_W;
+  const vPad = 12;
+  const qTop = qy - vPad;
+  const qBot = qy + TILE + vPad;
+
+  for (const pipe of out.pipes) {
+    const pTop = pipe.y;
+    const pBot = pipe.y + pipe.h;
+    if (!verticalRangesOverlap(qTop, qBot, pTop, pBot)) continue;
     const g = horizontalGapLeftToRight(qx, qx + TILE, pipe.x, pipe.x + pipe.w);
-    if (g >= 0 && g < PLAYER_W) return false;
+    if (g >= 0 && g < CLEAR) return false;
+    if (g < 0 && overlap(qx, qy, TILE, TILE, pipe.x, pipe.y, pipe.w, pipe.h)) return false;
   }
+  for (const pl of out.platforms) {
+    if (pl.type !== "brick") continue;
+    const pTop = pl.y;
+    const pBot = pl.y + pl.h;
+    if (!verticalRangesOverlap(qTop, qBot, pTop, pBot)) continue;
+    const g = horizontalGapLeftToRight(qx, qx + TILE, pl.x, pl.x + pl.w);
+    if (g >= 0 && g < CLEAR) return false;
+    if (g < 0 && overlap(qx, qy, TILE, TILE, pl.x, pl.y, pl.w, pl.h)) return false;
+  }
+  for (const other of out.questionBlocks) {
+    if (selfQ && other === selfQ) continue;
+    const oTop = other.y;
+    const oBot = other.y + other.h;
+    if (!verticalRangesOverlap(qTop, qBot, oTop, oBot)) continue;
+    const g = horizontalGapLeftToRight(qx, qx + TILE, other.x, other.x + other.w);
+    if (g >= 0 && g < CLEAR) return false;
+    if (g < 0 && overlap(qx, qy, TILE, TILE, other.x, other.y, other.w, other.h)) return false;
+  }
+  return true;
+}
+
+/** Full validation for ? placement (shared by generation and post-pass nudges). */
+function questionBlockPlacementValid(out, qx, qy, selfQ) {
+  if (!hasSupportForQuestionBlock(out, qx, qy)) return false;
+  if (!questionBlockConnectsToBrick(out, qx, qy)) return false;
+  if (questionBlockOverlapsPipe(qx, qy, out.pipes)) return false;
+  if (!questionBlockMarioSidewallClearanceOk(qx, qy, out, selfQ)) return false;
+  const patched = selfQ
+    ? {
+        ...out,
+        questionBlocks: out.questionBlocks.map(qb =>
+          qb === selfQ ? { ...qb, x: qx, y: qy } : qb
+        ),
+      }
+    : out;
+  if (questionBlockPipeSandwich(patched, qx, qy)) return false;
   return true;
 }
 
@@ -841,18 +892,7 @@ function ensureMarioWidthClearanceNearPipes(out) {
     }
   }
 
-  const canPlaceQuestionAtX = (q, nx) => {
-    if (!hasSupportForQuestionBlock(out, nx, q.y)) return false;
-    if (!questionBlockConnectsToBrick(out, nx, q.y)) return false;
-    if (!questionBlockHorizontalPipeClearanceOk(nx, q.y, pipes)) return false;
-    if (questionBlockOverlapsPipe(nx, q.y, pipes)) return false;
-    const patched = {
-      ...out,
-      questionBlocks: out.questionBlocks.map(qb => (qb === q ? { ...qb, x: nx } : qb)),
-    };
-    if (questionBlockPipeSandwich(patched, nx, q.y)) return false;
-    return true;
-  };
+  const canPlaceQuestionAtX = (q, nx) => questionBlockPlacementValid(out, nx, q.y, q);
 
   for (const q of out.questionBlocks) {
     if (canPlaceQuestionAtX(q, q.x)) continue;
@@ -976,17 +1016,16 @@ function hasSupportForQuestionBlock(out, qx, qy) {
   return false;
 }
 
-function pickQuestionBlockPlacement(qxRaw, qy, out) {
-  const tiles = [...out.groundSet].filter(x => x >= 320 && x < WORLD_W - 200)
-    .sort((a, b) => Math.abs(a - qxRaw) - Math.abs(b - qxRaw));
+function pickQuestionBlockPlacement(qxRaw, qy, out, blockIndex = 0) {
   const tryX = (qx) => {
-    if (!hasSupportForQuestionBlock(out, qx, qy)) return null;
-    if (!questionBlockConnectsToBrick(out, qx, qy)) return null;
-    if (!questionBlockHorizontalPipeClearanceOk(qx, qy, out.pipes)) return null;
-    if (questionBlockOverlapsPipe(qx, qy, out.pipes)) return null;
-    if (questionBlockPipeSandwich(out, qx, qy)) return null;
+    if (!questionBlockPlacementValid(out, qx, qy, null)) return null;
     return { x: qx, y: qy };
   };
+  const byDistThenX = (a, b) =>
+    Math.abs(a - qxRaw) - Math.abs(b - qxRaw) || a - b;
+
+  const tiles = [...out.groundSet].filter(x => x >= 320 && x < WORLD_W - 200)
+    .sort(byDistThenX);
   for (const t of tiles) {
     const ok = tryX(t);
     if (ok) return ok;
@@ -999,31 +1038,31 @@ function pickQuestionBlockPlacement(qxRaw, qy, out) {
     const ok = tryX(qx);
     if (ok) return ok;
   }
-  for (const t of [...out.groundSet].sort((a, b) => a - b)) {
-    if (t < 320 || t >= WORLD_W - 200) continue;
+  for (const t of [...out.groundSet].filter(x => x >= 320 && x < WORLD_W - 200).sort((a, b) => a - b)) {
     const ok = tryX(t);
     if (ok) return ok;
   }
-  for (const t of [...out.groundSet].sort((a, b) => a - b)) {
-    if (t < 280 || t >= WORLD_W - 200) continue;
-    if (!hasSupportForQuestionBlock(out, t, qy)) continue;
-    if (!questionBlockConnectsToBrick(out, t, qy)) continue;
-    if (!questionBlockHorizontalPipeClearanceOk(t, qy, out.pipes)) continue;
-    if (questionBlockOverlapsPipe(t, qy, out.pipes)) continue;
-    if (questionBlockPipeSandwich(out, t, qy)) continue;
-    return { x: t, y: qy };
+  for (const t of [...out.groundSet].filter(x => x >= 280 && x < WORLD_W - 200).sort((a, b) => a - b)) {
+    const ok = tryX(t);
+    if (ok) return ok;
   }
   for (const pl of out.platforms) {
     if (pl.type !== "brick") continue;
     const candidates = [pl.x - TILE, pl.x, pl.x + Math.floor((pl.w - TILE) / 2), pl.x + pl.w - TILE, pl.x + pl.w];
-    for (let raw of candidates) {
+    for (const raw of candidates) {
       const qx = Math.floor(raw / TILE) * TILE;
       if (qx < 280 || qx > WORLD_W - 400) continue;
       const ok = tryX(qx);
       if (ok) return ok;
     }
   }
-  return { x: 400, y: qy };
+  for (let qx = 320; qx < WORLD_W - 400; qx += TILE) {
+    const ok = tryX(qx);
+    if (ok) return ok;
+  }
+  const span = Math.max(TILE, WORLD_W - 400 - 320);
+  const slot = ((blockIndex * 137 + Math.floor(qxRaw / TILE)) * TILE) % span;
+  return { x: 320 + slot, y: qy };
 }
 
 // ============================================================
