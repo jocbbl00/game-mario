@@ -89,13 +89,6 @@ canvas.addEventListener("pointerdown", () => {
   } catch (_) {}
 });
 
-/** Reference pixel Mario (red overalls, olive shirt, hands) — `assets/mario-super.png`. */
-const marioSpriteImg = new Image();
-let marioSpriteOk = false;
-marioSpriteImg.onload = () => { marioSpriteOk = true; };
-marioSpriteImg.onerror = () => { marioSpriteOk = false; };
-marioSpriteImg.src = "assets/mario-super.png";
-
 // ============================================================
 // SEEDED PRNG  (xorshift32)
 // *** This exact function is also in the Edge Functions. ***
@@ -2895,86 +2888,81 @@ function drawEnemy(e) {
   }
 }
 
-function drawMarioSpriteIntoRect(img, dx, dy, pw, ph) {
-  if (!img || !img.naturalWidth) return false;
-  const iw = img.naturalWidth;
-  const ih = img.naturalHeight;
-  const ir = iw / ih;
-  const pr = pw / ph;
-  let dw = pw;
-  let dh = ph;
-  if (pr > ir) {
-    dw = Math.round(ph * ir);
-    dh = ph;
-  } else {
-    dw = pw;
-    dh = Math.round(pw / ir);
-  }
-  const ox = dx + (pw - dw) * 0.5;
-  const oy = dy + (ph - dh) * 0.5;
-  const prev = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, ox, oy, dw, dh);
-  ctx.imageSmoothingEnabled = prev;
-  return true;
-}
-
 /**
- * NES-style tall Mario (reference palette): red hat/overalls, olive shirt & boots,
- * tan skin & hands, dark olive hair/mustache/eye. Scaled to hitbox.
+ * NES-style “super” Mario drawn as crisp pixels (no bitmap): red cap & overalls,
+ * olive shirt & boots (#829131 / #66752d), tan skin & hands (#f7c344).
+ * Fire tier uses white shirt (S → white) instead of green.
  */
-function drawPlayerProceduralReference(ox) {
-  const R = "#d32f2f";
-  const G = "#6b7c35";
-  const Y = "#f7c344";
-  const D = "#4a5a28";
-  const W = "#f5f5f5";
-  const shirt = player.powerStage >= 2 ? W : G;
+const MARIO_PIXEL_COLS = 12;
+const MARIO_PIXEL_ROWS = 20;
+const MARIO_PIXEL_PATTERN = [
+  "....RRRR....",
+  "...RRRRRR...",
+  "..RRRRRRRR..",
+  ".RRRRRRRRRR.",
+  ".RRYYYDYYRR.",
+  ".RRYYDDYYRR.",
+  "..YYYYYYYY..",
+  "..SSSSSSSS..",
+  ".SSYYSSYYSS.",
+  ".SSYYSSYYSS.",
+  ".RRRRRRRRRR.",
+  ".RRYSYYSYRR.",
+  ".RRRRRRRRRR.",
+  "..SSSSSSSS..",
+  "..RRRRRRRR..",
+  "..RRRRRRRR..",
+  "..BBRRRRBB..",
+  "..BBRRRRBB..",
+  ".BBDDDDDDBB.",
+  "..BB....BB..",
+];
+
+function drawPlayerProceduralMario(ox) {
+  const PAL = {
+    R: "#df3e48",
+    Y: "#f7c344",
+    D: "#66752d",
+    G: "#829131",
+    B: "#6d7c38",
+  };
+  const shirt = player.powerStage >= 2 ? "#f2f2f2" : PAL.G;
   const pw = player.w;
   const ph = player.h;
-  const px = (c) => ox + (c / 12) * pw;
-  const py = (r) => player.y + (r / 16) * ph;
-  const cell = (r, c, w, h, col) => {
-    ctx.fillStyle = col;
-    ctx.fillRect(px(c), py(r), (w / 12) * pw, (h / 16) * ph);
-  };
+  const cw = pw / MARIO_PIXEL_COLS;
+  const ch = ph / MARIO_PIXEL_ROWS;
+  const prevSmooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
 
-  // Red overall legs (above boots)
-  cell(11, 3, 2, 3, R); cell(11, 7, 2, 3, R);
-  cell(12, 4, 2, 2, R); cell(12, 6, 2, 2, R);
-  // Overalls bib + straps
-  cell(8, 4, 4, 2, R); cell(8, 6, 4, 2, R);
-  cell(7, 3, 1, 4, R); cell(7, 7, 1, 4, R);
-  cell(7, 4, 2, 1, R); cell(7, 7, 2, 1, R);
-  // Yellow buttons
-  cell(8, 5, 1, 1, Y); cell(8, 6, 1, 1, Y);
-  // Shirt torso + sleeves
-  cell(5, 3, 6, 4, shirt);
-  cell(6, 2, 2, 2, shirt); cell(6, 8, 2, 2, shirt);
-  // Face
-  cell(3, 3, 6, 4, Y);
-  cell(4, 2, 4, 2, Y);
-  // Hair / sideburns
-  cell(3, 2, 2, 2, D); cell(3, 8, 2, 2, D);
-  // Mustache, nose, eye
-  cell(4, 7, 4, 1, D);
-  cell(4, 6, 1, 1, Y);
-  cell(3, 6, 1, 1, D);
-  // Cap brim + crown
-  cell(0, 3, 6, 2, R);
-  cell(0, 4, 8, 2, R);
-  cell(0, 5, 6, 1, R);
-  // Hands (tan) beside torso
-  cell(8, 1, 2, 2, Y); cell(8, 9, 2, 2, Y);
-  // Green boots on top
-  cell(13, 2, 3, 3, G); cell(13, 7, 3, 3, G);
-  cell(14, 2, 3, 2, D); cell(14, 7, 3, 2, D);
-  // Yale "Y" on cap (procedural only)
-  ctx.font = `bold ${Math.max(6, Math.floor(pw * 0.28))}px Arial, sans-serif`;
+  for (let r = 0; r < MARIO_PIXEL_ROWS; r++) {
+    const row = MARIO_PIXEL_PATTERN[r] || "";
+    for (let c = 0; c < MARIO_PIXEL_COLS; c++) {
+      const chCode = row[c] || ".";
+      if (chCode === "." || chCode === " ") continue;
+      let col;
+      if (chCode === "S") col = shirt;
+      else if (chCode === "B") col = PAL.B;
+      else if (chCode === "R") col = PAL.R;
+      else if (chCode === "Y") col = PAL.Y;
+      else if (chCode === "D") col = PAL.D;
+      else continue;
+      ctx.fillStyle = col;
+      ctx.fillRect(
+        Math.floor(ox + c * cw),
+        Math.floor(player.y + r * ch),
+        Math.ceil(cw),
+        Math.ceil(ch),
+      );
+    }
+  }
+
+  ctx.imageSmoothingEnabled = prevSmooth;
+
+  ctx.font = `bold ${Math.max(6, Math.floor(pw * 0.26))}px Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const capCx = ox + pw / 2;
-  const capCy = player.y + ph * 0.11;
+  const capCy = player.y + (2.5 / MARIO_PIXEL_ROWS) * ph;
   ctx.strokeStyle = "#00356B";
   ctx.lineWidth = 1.1;
   ctx.fillStyle = "#fffef5";
@@ -2992,13 +2980,7 @@ function drawPlayer() {
     ctx.scale(-1, 1);
   }
 
-  const ox = sx;
-
-  if (marioSpriteOk && marioSpriteImg.complete && marioSpriteImg.naturalWidth) {
-    drawMarioSpriteIntoRect(marioSpriteImg, ox, player.y, player.w, player.h);
-  } else {
-    drawPlayerProceduralReference(ox);
-  }
+  drawPlayerProceduralMario(sx);
 
   ctx.restore();
 }
