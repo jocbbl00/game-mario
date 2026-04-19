@@ -8,12 +8,17 @@ const CANVAS_H  = 560;
 const TILE      = 40;
 const GRAVITY   = 0.55;
 const JUMP_FORCE = -13;
-/** Super / fire forms jump this much higher than small Mario (green shrink keeps this). */
+/** Super / fire forms jump this much higher than small Mario. */
 const JUMP_MULT_SUPER = 1.2;
+/** Temporary mini debuff from green mushroom while normal (30% lower jump). */
+const JUMP_MULT_MINI = 0.7;
 const PLAYER_SMALL_W = 24;
 const PLAYER_SMALL_H = 28;
+const PLAYER_MINI_W  = 17;
+const PLAYER_MINI_H  = 20;
 const PLAYER_BIG_W   = 30;
 const PLAYER_BIG_H   = 40;
+const MINI_DEBUFF_SEC = 5;
 /** Level geometry clearance — matches big Mario hitbox. */
 const PLAYER_CLEAR_W = PLAYER_BIG_W;
 const PLAYER_CLEAR_H = PLAYER_BIG_H;
@@ -1197,14 +1202,17 @@ function jumpToTestStage(stage1to10) {
 
 function getPlayerJumpVy0() {
   if (!player) return JUMP_FORCE;
-  return JUMP_FORCE * (player.powerStage >= 1 ? JUMP_MULT_SUPER : 1);
+  let mult = player.powerStage >= 1 ? JUMP_MULT_SUPER : 1;
+  if (player.powerStage === 0 && player.miniDebuffSec > 0) mult *= JUMP_MULT_MINI;
+  return JUMP_FORCE * mult;
 }
 
 function syncPlayerHitbox(keepFeet) {
   if (!player) return;
-  const wantBig = player.powerStage >= 1 && !player.greenShrink;
-  const nh = wantBig ? PLAYER_BIG_H : PLAYER_SMALL_H;
-  const nw = wantBig ? PLAYER_BIG_W : PLAYER_SMALL_W;
+  const wantBig = player.powerStage >= 1;
+  const wantMini = !wantBig && player.miniDebuffSec > 0;
+  const nh = wantBig ? PLAYER_BIG_H : (wantMini ? PLAYER_MINI_H : PLAYER_SMALL_H);
+  const nw = wantBig ? PLAYER_BIG_W : (wantMini ? PLAYER_MINI_W : PLAYER_SMALL_W);
   if (player.w === nw && player.h === nh) return;
   const prevH = player.h;
   player.w = nw;
@@ -1225,7 +1233,7 @@ function createPlayer() {
     walkTimer: 0,
     maxX: 80,
     powerStage: 0,
-    greenShrink: false,
+    miniDebuffSec: 0,
     fireCooldown: 0,
   };
 }
@@ -1459,6 +1467,10 @@ function update(dt) {
   const k = dt * SIM_FPS;
 
   if (autoPilot) autoPilotJumpCooldown = Math.max(0, autoPilotJumpCooldown - dt);
+  if (player.miniDebuffSec > 0) {
+    player.miniDebuffSec = Math.max(0, player.miniDebuffSec - dt);
+    syncPlayerHitbox(true);
+  }
 
   let autoPilotRetreating = false;
   const jumpVy0 = getPlayerJumpVy0();
@@ -1598,7 +1610,7 @@ function update(dt) {
       if (m.type === "power") {
         if (player.powerStage < 2) {
           player.powerStage++;
-          player.greenShrink = false;
+          player.miniDebuffSec = 0;
           syncPlayerHitbox(true);
           addPopup(m.x - camX + m.w / 2, m.y - 8, player.powerStage === 2 ? "FIRE!" : "SUPER!");
         } else {
@@ -1606,9 +1618,16 @@ function update(dt) {
           addPopup(m.x - camX + m.w / 2, m.y - 8, "+1000");
         }
       } else {
-        player.greenShrink = true;
-        syncPlayerHitbox(true);
-        addPopup(m.x - camX + m.w / 2, m.y - 8, "SHRINK!");
+        if (player.powerStage > 0) {
+          player.powerStage--;
+          player.miniDebuffSec = 0;
+          syncPlayerHitbox(true);
+          addPopup(m.x - camX + m.w / 2, m.y - 8, "DOWNGRADE!");
+        } else {
+          player.miniDebuffSec = MINI_DEBUFF_SEC;
+          syncPlayerHitbox(true);
+          addPopup(m.x - camX + m.w / 2, m.y - 8, "MINI -30% (5s)");
+        }
       }
       level.mushrooms.splice(i, 1);
     }
@@ -1833,7 +1852,7 @@ function damagePlayer(pitFall = false) {
       player.vy = 0;
       player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
       player.powerStage = 0;
-      player.greenShrink = false;
+      player.miniDebuffSec = 0;
       player.w = PLAYER_SMALL_W;
       player.h = PLAYER_SMALL_H;
       player.y = GROUND_Y - player.h;
@@ -1845,7 +1864,7 @@ function damagePlayer(pitFall = false) {
       player.vy        = 0;
       player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
       player.powerStage = 0;
-      player.greenShrink = false;
+      player.miniDebuffSec = 0;
       player.w = PLAYER_SMALL_W;
       player.h = PLAYER_SMALL_H;
       player.y = GROUND_Y - player.h;
@@ -3025,13 +3044,15 @@ function drawHUD() {
   ctx.textAlign = "left";
   ctx.fillText(seasonNames[si], 10, 38);
 
-  if (player && player.powerStage >= 1) {
-    ctx.fillStyle = player.powerStage >= 2 ? "#ff6f00" : "#ffb74d";
+  if (player && (player.powerStage >= 1 || player.miniDebuffSec > 0)) {
+    ctx.fillStyle = player.powerStage >= 2 ? "#ff6f00" : (player.powerStage >= 1 ? "#ffb74d" : "#9ccc65");
     ctx.font = "bold 13px 'Courier New'";
     ctx.textAlign = "center";
-    const tier = player.powerStage >= 2 ? "FIRE" : "SUPER";
-    const mini = player.greenShrink ? " · MINI" : "";
-    ctx.fillText(`${tier}${mini}`, CANVAS_W / 2, 38);
+    let tier = player.powerStage >= 2 ? "FIRE" : (player.powerStage >= 1 ? "SUPER" : "MINI");
+    if (player.powerStage === 0 && player.miniDebuffSec > 0) {
+      tier += ` ${Math.max(0, Math.ceil(player.miniDebuffSec))}s`;
+    }
+    ctx.fillText(tier, CANVAS_W / 2, 38);
   }
 
   ctx.fillStyle = "#9e9e9e";
@@ -3130,7 +3151,7 @@ function drawStart() {
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
   ctx.fillText("10 stages · ~20k units · final flag wins  +2500", CANVAS_W / 2, 305);
-  ctx.fillText("? blocks: red mushroom = grow / fire tier   green = mini (same jump)", CANVAS_W / 2, 335);
+  ctx.fillText("? blocks: red = level up   green = level down / mini debuff", CANVAS_W / 2, 335);
   ctx.fillStyle = "#bcaaa4";
   ctx.font = "14px 'Courier New'";
   ctx.fillText("Brown pipe: stand on top + S or down to enter underground bonus", CANVAS_W / 2, 358);
@@ -3142,7 +3163,7 @@ function drawStart() {
     ctx.fillText("Power resets when you lose a life", CANVAS_W / 2, 392);
   } else {
     ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire after 2nd red mushroom", CANVAS_W / 2, 384);
-    ctx.fillText("\u2191 and W also jump · green = smaller body, jump unchanged", CANVAS_W / 2, 404);
+    ctx.fillText("\u2191 and W also jump · normal+green = mini 5s (-30% size/jump)", CANVAS_W / 2, 404);
   }
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
