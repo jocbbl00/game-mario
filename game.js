@@ -8,9 +8,18 @@ const CANVAS_H  = 560;
 const TILE      = 40;
 const GRAVITY   = 0.55;
 const JUMP_FORCE = -13;
-const PLAYER_W  = 28;
-const PLAYER_H  = 36;
+/** Super / fire forms jump this much higher than small Mario (green shrink keeps this). */
+const JUMP_MULT_SUPER = 1.2;
+const PLAYER_SMALL_W = 24;
+const PLAYER_SMALL_H = 28;
+const PLAYER_BIG_W   = 30;
+const PLAYER_BIG_H   = 40;
+/** Level geometry clearance — matches big Mario hitbox. */
+const PLAYER_CLEAR_W = PLAYER_BIG_W;
+const PLAYER_CLEAR_H = PLAYER_BIG_H;
 const PLAYER_SPEED = 4.5;
+/** Physics and speeds are tuned as “per frame at 60Hz”; multiply state by `dt * SIM_FPS` each step. */
+const SIM_FPS = 60;
 const NUM_LEVELS   = 10;
 const LEVEL_SEG_W  = 10000;          // 10 segments ≈ 100000 world units to final flag
 const WORLD_W      = NUM_LEVELS * LEVEL_SEG_W;
@@ -18,11 +27,8 @@ const GROUND_Y  = CANVAS_H - TILE;   // y where ground platforms start
 const MUSHROOM_W = 24;
 const MUSHROOM_H = 24;
 const FIREBALL_SPEED = 10;
-const FIRE_COOLDOWN_FRAMES = 21; // ~0.35s at 60fps
+const FIRE_COOLDOWN_SEC = 21 / SIM_FPS;
 const MUSHROOM_ALIVE_SEC = 5;
-const FIRE_POWER_SEC = 5;
-const JUMP_POWER_SEC = 5;
-const SUPER_JUMP_FORCE = -20;          // green mushroom: higher jump
 const RESPAWN_INVINCIBLE_MS = 3000;
 /** How far left of max progress to respawn on death (surface). 5 tiles × TILE = 200px. */
 const RESPAWN_SURFACE_BACK_TILES = 5;
@@ -249,6 +255,8 @@ function generateLevel(seed) {
         vy: 0,
         w: 22, h: 20,
         alive: true,
+        squished: false,
+        squishTimer: 0,
         jumping: false,
         jumpTimer: Math.round(300 - 280 * Math.pow(x / WORLD_W, 3)) + (Math.floor(x / TILE) * 17) % 40,
       });
@@ -329,7 +337,7 @@ function maxJumpRisePx(jumpVy0, gravityMult) {
 }
 
 /** Normal small-Mario jump apex (px) at base gravity — defines bonus exit vertical gap vs pipe. */
-const NORMAL_JUMP_RISE_PX = maxJumpRisePx(JUMP_FORCE, 1);
+const NORMAL_JUMP_RISE_PX = maxJumpRisePx(JUMP_FORCE * JUMP_MULT_SUPER, 1);
 /** Vertical gap (px) from pipe bottom to last climb brick top: 30%–80% of that jump; keeps brick detached from pipe. */
 const BONUS_EXIT_GAP_MIN_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.3);
 const BONUS_EXIT_GAP_MAX_Y = Math.floor(NORMAL_JUMP_RISE_PX * 0.8);
@@ -350,9 +358,9 @@ const BONUS_JUMP_TEST_GRAVITY_MULT = 1 + (NUM_LEVELS - 1) * 0.016;
  * a target strip [gapX, gapX+toWidth] at toYTop (same frame order as update()).
  */
 function undergroundBonusSimulateClear(gapX, fromYTop, toYTop, toWidth, gravityMult) {
-  let px = -PLAYER_W;
-  let py = fromYTop - PLAYER_H;
-  let vy = JUMP_FORCE;
+  let px = -PLAYER_BIG_W;
+  let py = fromYTop - PLAYER_BIG_H;
+  let vy = JUMP_FORCE * JUMP_MULT_SUPER;
   const vx = PLAYER_SPEED;
   const bLeft = gapX;
   const bRight = gapX + toWidth;
@@ -361,9 +369,9 @@ function undergroundBonusSimulateClear(gapX, fromYTop, toYTop, toWidth, gravityM
     if (vy > 18) vy = 18;
     px += vx;
     py += vy;
-    const foot = py + PLAYER_H;
+    const foot = py + PLAYER_BIG_H;
     if (foot >= toYTop - 5 && foot <= toYTop + 18 && vy >= -2) {
-      if (px + PLAYER_W > bLeft + 3 && px < bRight - 3) return true;
+      if (px + PLAYER_BIG_W > bLeft + 3 && px < bRight - 3) return true;
     }
   }
   return false;
@@ -696,7 +704,7 @@ function updatePipeWarpAnim(dt) {
     if (u >= 1) {
       level = buildUndergroundBonus(surfaceSave ? surfaceSave.segment : 0);
       player.x = 70;
-      player.y = GROUND_Y - PLAYER_H;
+      player.y = GROUND_Y - player.h;
       player.vx = 0;
       player.vy = 0;
       camX = 0;
@@ -783,10 +791,10 @@ function verticalRangesOverlap(aTop, aBot, bTop, bBot) {
 
 /**
  * Pipes, bricks, and other ? blocks: in a vertical band around the ? block, any side-by-side
- * pair must leave at least PLAYER_W horizontal gap (or no solid overlap) so the path stays playable.
+ * pair must leave at least PLAYER_CLEAR_W horizontal gap (or no solid overlap) so the path stays playable.
  */
 function questionBlockMarioSidewallClearanceOk(qx, qy, out, selfQ) {
-  const CLEAR = PLAYER_W;
+  const CLEAR = PLAYER_CLEAR_W;
   const vPad = 12;
   const qTop = qy - vPad;
   const qBot = qy + TILE + vPad;
@@ -839,11 +847,11 @@ function questionBlockPlacementValid(out, qx, qy, selfQ) {
 }
 
 /**
- * Post-processing: min horizontal gap PLAYER_W between pipes and floating bricks / ? blocks
+ * Post-processing: min horizontal gap PLAYER_CLEAR_W between pipes and floating bricks / ? blocks
  * so Mario can pass (fixes tight slots next to pipe stems, e.g. early stages).
  */
 function ensureMarioWidthClearanceNearPipes(out) {
-  const CLEAR = PLAYER_W;
+  const CLEAR = PLAYER_CLEAR_W;
   const pipes = out.pipes;
   if (!pipes || pipes.length === 0) return;
 
@@ -1133,7 +1141,7 @@ function skipTesterForward500() {
     if (!found) tx = Math.max(0, tileX);
   }
   player.x = Math.min(tx + 6, WORLD_W - player.w);
-  player.y = GROUND_Y - PLAYER_H;
+  player.y = GROUND_Y - player.h;
   player.vx = 0;
   player.vy = 0;
   player.onGround = true;
@@ -1175,7 +1183,7 @@ function jumpToTestStage(stage1to10) {
   state.flagsPassed = seg;
   const tx = findFirstGroundTileInSegment(seg);
   player.x = Math.min(tx + 6, WORLD_W - player.w);
-  player.y = GROUND_Y - PLAYER_H;
+  player.y = GROUND_Y - player.h;
   player.vx = 0;
   player.vy = 0;
   player.onGround = true;
@@ -1187,11 +1195,28 @@ function jumpToTestStage(stage1to10) {
   addPopup(CANVAS_W / 2, 128, "+2000");
 }
 
+function getPlayerJumpVy0() {
+  if (!player) return JUMP_FORCE;
+  return JUMP_FORCE * (player.powerStage >= 1 ? JUMP_MULT_SUPER : 1);
+}
+
+function syncPlayerHitbox(keepFeet) {
+  if (!player) return;
+  const wantBig = player.powerStage >= 1 && !player.greenShrink;
+  const nh = wantBig ? PLAYER_BIG_H : PLAYER_SMALL_H;
+  const nw = wantBig ? PLAYER_BIG_W : PLAYER_SMALL_W;
+  if (player.w === nw && player.h === nh) return;
+  const prevH = player.h;
+  player.w = nw;
+  player.h = nh;
+  if (keepFeet) player.y += prevH - nh;
+}
+
 function createPlayer() {
   return {
-    x: 80, y: GROUND_Y - PLAYER_H,
+    x: 80, y: GROUND_Y - PLAYER_SMALL_H,
     vx: 0, vy: 0,
-    w: PLAYER_W, h: PLAYER_H,
+    w: PLAYER_SMALL_W, h: PLAYER_SMALL_H,
     onGround: false,
     alive: true,
     invincibleUntilMs: 0,
@@ -1199,11 +1224,9 @@ function createPlayer() {
     walkFrame: 0,
     walkTimer: 0,
     maxX: 80,
-    firePower: false,
-    firePowerTimer: 0,
+    powerStage: 0,
+    greenShrink: false,
     fireCooldown: 0,
-    jumpPower: false,
-    jumpPowerTimer: 0,
   };
 }
 
@@ -1384,7 +1407,7 @@ function resolveQuestionBlocks() {
 }
 
 function spawnMushroom(block) {
-  const type = Math.random() < 0.5 ? "fire" : "jump";
+  const type = Math.random() < 0.5 ? "power" : "green";
   level.mushrooms.push({
     x: block.x + block.w / 2 - MUSHROOM_W / 2,
     y: block.y + block.h / 2 - MUSHROOM_H / 2,
@@ -1395,7 +1418,7 @@ function spawnMushroom(block) {
     emerge: 0,
     onGround: false,
     lifeSec: MUSHROOM_ALIVE_SEC,
-    type,   // "fire" = red cap (fireballs 5s), "jump" = green cap (super-jump 5s)
+    type,
   });
 }
 
@@ -1433,10 +1456,12 @@ function update(dt) {
 
   const spMult = getLevelSpeedMult();
   const gMult  = getGravityMult();
+  const k = dt * SIM_FPS;
 
   if (autoPilot) autoPilotJumpCooldown = Math.max(0, autoPilotJumpCooldown - dt);
 
   let autoPilotRetreating = false;
+  const jumpVy0 = getPlayerJumpVy0();
   // --- Player input: ← → move, Space / ↑ / W jump, A fireball ---
   if (autoPilot) {
     autoPilotRetreating = autoPilotRetreatLeft > 0;
@@ -1449,29 +1474,37 @@ function update(dt) {
       player.vx = PLAYER_SPEED * spMult;
     }
     if (autoPilotJumpCooldown <= 0 && autoPilotShouldJumpGroundGap(autoPilotRetreating)) {
-      player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
+      player.vy = jumpVy0;
       player.onGround = false;
       autoPilotJumpCooldown = 0.35;
     }
   } else {
     if (keys["ArrowLeft"])    { player.vx = -PLAYER_SPEED * spMult; player.facingRight = false; }
     else if (keys["ArrowRight"]) { player.vx = PLAYER_SPEED * spMult;  player.facingRight = true;  }
-    else player.vx *= 0.75;
+    else player.vx *= Math.pow(0.75, k);
 
     if ((keys["Space"] || keys["ArrowUp"] || keys["KeyW"]) && player.onGround) {
-      player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
+      player.vy = jumpVy0;
       player.onGround = false;
     }
   }
 
-  if (player.fireCooldown > 0) player.fireCooldown--;
-  const autoPilotShootEnemy = autoPilot && level.enemies.some(e => {
-    if (!e.alive || e.squished) return false;
-    if (autoPilotRetreating) return e.x + e.w > player.x - 200 && e.x + e.w < player.x + player.w + 10;
-    return e.x > player.x - 20 && e.x < player.x + 230;
-  });
-  if (player.firePower && player.fireCooldown <= 0 && (keys["KeyA"] || autoPilotShootEnemy)) {
-    player.fireCooldown = FIRE_COOLDOWN_FRAMES;
+  if (player.fireCooldown > 0) player.fireCooldown -= dt;
+  const autoPilotShootEnemy = autoPilot && (
+    level.enemies.some(e => {
+      if (!e.alive || e.squished) return false;
+      if (autoPilotRetreating) return e.x + e.w > player.x - 200 && e.x + e.w < player.x + player.w + 10;
+      return e.x > player.x - 20 && e.x < player.x + 230;
+    }) ||
+    level.fish.some(fish => {
+      if (!fish.alive || fish.squished || fish.y >= fish.baseY) return false;
+      const fx = fish.x - fish.w / 2;
+      if (autoPilotRetreating) return fx + fish.w > player.x - 200 && fx + fish.w < player.x + player.w + 10;
+      return fx > player.x - 20 && fx < player.x + 230;
+    })
+  );
+  if (player.powerStage >= 2 && player.fireCooldown <= 0 && (keys["KeyA"] || autoPilotShootEnemy)) {
+    player.fireCooldown = FIRE_COOLDOWN_SEC;
     const dir = player.facingRight ? 1 : -1;
     fireballs.push({
       x: player.facingRight ? player.x + player.w - 4 : player.x - 6,
@@ -1482,11 +1515,11 @@ function update(dt) {
     });
   }
 
-  // --- Physics ---
-  player.vy += GRAVITY * gMult;
+  // --- Physics (frame-rate independent; tuned at SIM_FPS) ---
+  player.vy += GRAVITY * gMult * k;
   if (player.vy >  18) player.vy =  18;
-  player.x += player.vx;
-  player.y += player.vy;
+  player.x += player.vx * k;
+  player.y += player.vy * k;
   const ww = getWorldWidth();
   if (player.x < 0) player.x = 0;
   if (player.x > ww - player.w) player.x = ww - player.w;
@@ -1504,7 +1537,7 @@ function update(dt) {
         }
       }
       player.x = Math.max(0, gx);
-      player.y = GROUND_Y - PLAYER_H;
+      player.y = GROUND_Y - player.h;
       player.onGround = true;
     } else {
       damagePlayer(true); return;
@@ -1517,29 +1550,17 @@ function update(dt) {
   resolveVsBoxes(level.pipes);
   resolveQuestionBlocks();
   for (const qb of level.questionBlocks) {
-    if (qb.bumpTimer > 0) qb.bumpTimer--;
+    if (qb.bumpTimer > 0) qb.bumpTimer -= k;
   }
 
   if (autoPilot && player.onGround && autoPilotJumpCooldown <= 0 && Math.abs(player.vx) < 0.5) {
-    player.vy = player.jumpPower ? SUPER_JUMP_FORCE : JUMP_FORCE;
+    player.vy = getPlayerJumpVy0();
     player.onGround = false;
     autoPilotJumpCooldown = 0.4;
   }
 
   // --- Track furthest-right for respawn (surface only) ---
   if (state.layer === "surface" && player.x > player.maxX) player.maxX = player.x;
-
-  if (player.firePower && player.firePowerTimer > 0) {
-    player.firePowerTimer -= dt;
-    if (player.firePowerTimer <= 0) {
-      player.firePower = false;
-      fireballs = [];
-    }
-  }
-  if (player.jumpPower && player.jumpPowerTimer > 0) {
-    player.jumpPowerTimer -= dt;
-    if (player.jumpPowerTimer <= 0) player.jumpPower = false;
-  }
 
   // --- Walk animation ---
   player.walkTimer += dt;
@@ -1560,13 +1581,13 @@ function update(dt) {
       continue;
     }
     if (m.emerge < 36) {
-      m.y -= 2;
-      m.emerge++;
+      m.y -= 2 * k;
+      m.emerge += k;
       continue;
     }
-    m.vy += GRAVITY * gMult;
-    m.x += m.vx;
-    m.y += m.vy;
+    m.vy += GRAVITY * gMult * k;
+    m.x += m.vx * k;
+    m.y += m.vy * k;
     m.onGround = false;
     resolveEntityVsBoxes(m, solidForMush);
     if (m.y > CANVAS_H + 80) {
@@ -1574,55 +1595,23 @@ function update(dt) {
       continue;
     }
     if (overlap(player.x, player.y, player.w, player.h, m.x, m.y, m.w, m.h)) {
-      if (m.type === "fire") {
-        const firstFire = !player.firePower;
-        player.firePower = true;
-        player.firePowerTimer = FIRE_POWER_SEC;
-        if (firstFire) addPopup(m.x - camX + m.w / 2, m.y - 8, "FIRE!");
+      if (m.type === "power") {
+        if (player.powerStage < 2) {
+          player.powerStage++;
+          player.greenShrink = false;
+          syncPlayerHitbox(true);
+          addPopup(m.x - camX + m.w / 2, m.y - 8, player.powerStage === 2 ? "FIRE!" : "SUPER!");
+        } else {
+          state.score += 1000;
+          addPopup(m.x - camX + m.w / 2, m.y - 8, "+1000");
+        }
       } else {
-        const firstJump = !player.jumpPower;
-        player.jumpPower = true;
-        player.jumpPowerTimer = JUMP_POWER_SEC;
-        if (firstJump) addPopup(m.x - camX + m.w / 2, m.y - 8, "JUMP!");
+        player.greenShrink = true;
+        syncPlayerHitbox(true);
+        addPopup(m.x - camX + m.w / 2, m.y - 8, "SHRINK!");
       }
       level.mushrooms.splice(i, 1);
     }
-  }
-
-  // --- Fireballs ---
-  for (let i = fireballs.length - 1; i >= 0; i--) {
-    const f = fireballs[i];
-    f.x += f.vx;
-    f.life--;
-    if (f.life <= 0) {
-      fireballs.splice(i, 1);
-      continue;
-    }
-    let wall = false;
-    for (const b of solidForMush) {
-      if (overlap(f.x, f.y, 8, 8, b.x, b.y, b.w, b.h)) {
-        wall = true;
-        break;
-      }
-    }
-    if (wall || f.x < -20 || f.x > getWorldWidth()) {
-      fireballs.splice(i, 1);
-      continue;
-    }
-    let hitEnemy = false;
-    for (const e of level.enemies) {
-      if (!e.alive || e.squished) continue;
-      if (overlap(f.x, f.y, 8, 8, e.x, e.y, e.w, e.h)) {
-        e.squished = true;
-        e.squishTimer = 25;
-        state.enemiesDefeated++;
-        state.score += 200;
-        addPopup(e.x - camX, e.y - 20, "+200");
-        hitEnemy = true;
-        break;
-      }
-    }
-    if (hitEnemy) fireballs.splice(i, 1);
   }
 
   // --- Coins (underground: wider hitbox; bonus coins count like surface — +1 coin, +100 score) ---
@@ -1642,7 +1631,8 @@ function update(dt) {
   for (const e of level.enemies) {
     if (!e.alive) continue;
     if (e.squished) {
-      if (--e.squishTimer <= 0) e.alive = false;
+      e.squishTimer -= k;
+      if (e.squishTimer <= 0) e.alive = false;
       continue;
     }
 
@@ -1655,7 +1645,7 @@ function update(dt) {
         e.vx = -e.vx;
       } else {
         // Pipe check: next step would collide with a pipe → turn around
-        const nx = e.x + e.vx;
+        const nx = e.x + e.vx * spMult * k;
         for (const pipe of level.pipes) {
           if (!overlap(e.x, e.y, e.w, e.h, pipe.x, pipe.y, pipe.w, pipe.h) &&
                overlap(nx,  e.y, e.w, e.h, pipe.x, pipe.y, pipe.w, pipe.h)) {
@@ -1666,7 +1656,7 @@ function update(dt) {
       }
     }
 
-    e.x += e.vx * spMult;
+    e.x += e.vx * spMult * k;
     if (e.x <= e.minX)          { e.x = e.minX;          e.vx =  Math.abs(e.vx); }
     if (e.x + e.w >= e.maxX)    { e.x = e.maxX - e.w;    e.vx = -Math.abs(e.vx); }
 
@@ -1690,9 +1680,15 @@ function update(dt) {
   for (let i = level.fish.length - 1; i >= 0; i--) {
     const f = level.fish[i];
     if (!f.alive) { level.fish.splice(i, 1); continue; }
+    if (f.squished) {
+      f.squishTimer -= k;
+      if (f.squishTimer <= 0) level.fish.splice(i, 1);
+      continue;
+    }
 
     if (!f.jumping) {
-      if (--f.jumpTimer <= 0) {
+      f.jumpTimer -= k;
+      if (f.jumpTimer <= 0) {
         const df  = f.x / getWorldWidth();                        // 0 at start, 1 at end
         const df3 = df * df * df;                         // cubic: stays slow until far
         f.vy = -(6 + 6 * df3);                            // -6 near start (high, slow) → -12 near end
@@ -1701,8 +1697,8 @@ function update(dt) {
       continue;
     }
 
-    f.vy += GRAVITY * 0.38 * gMult;   // reduced gravity → floaty, stays airborne longer
-    f.y  += f.vy;
+    f.vy += GRAVITY * 0.38 * gMult * k;   // reduced gravity → floaty, stays airborne longer
+    f.y  += f.vy * k;
 
     if (f.y >= f.baseY) {              // back below water surface
       f.y = f.baseY;
@@ -1731,6 +1727,56 @@ function update(dt) {
     }
   }
 
+  // --- Fireballs ---
+  for (let i = fireballs.length - 1; i >= 0; i--) {
+    const fb = fireballs[i];
+    fb.x += fb.vx * k;
+    fb.life -= k;
+    if (fb.life <= 0) {
+      fireballs.splice(i, 1);
+      continue;
+    }
+    let wall = false;
+    for (const b of solidForMush) {
+      if (overlap(fb.x, fb.y, 8, 8, b.x, b.y, b.w, b.h)) {
+        wall = true;
+        break;
+      }
+    }
+    if (wall || fb.x < -20 || fb.x > getWorldWidth()) {
+      fireballs.splice(i, 1);
+      continue;
+    }
+    let hitSomething = false;
+    for (const fish of level.fish) {
+      if (!fish.alive || fish.squished || fish.y >= fish.baseY) continue;
+      if (overlap(fb.x, fb.y, 8, 8, fish.x - fish.w / 2, fish.y, fish.w, fish.h)) {
+        fish.squished = true;
+        fish.squishTimer = 25;
+        state.enemiesDefeated++;
+        state.score += 200;
+        addPopup(fish.x - camX, fish.y - 20, "+200");
+        hitSomething = true;
+        break;
+      }
+    }
+    if (!hitSomething) {
+      for (const e of level.enemies) {
+        if (!e.alive || e.squished) continue;
+        if (overlap(fb.x, fb.y, 8, 8, e.x, e.y, e.w, e.h)) {
+          e.squished = true;
+          e.squishTimer = 25;
+          state.enemiesDefeated++;
+          state.score += 200;
+          addPopup(e.x - camX, e.y - 20, "+200");
+          hitSomething = true;
+          break;
+        }
+      }
+    }
+    if (hitSomething) fireballs.splice(i, 1);
+  }
+
   // --- Flags: one per segment; 10th flag wins (~20k world) ---
   if (state.layer === "surface") {
     const nextFlagX = (state.flagsPassed + 1) * LEVEL_SEG_W - 320;
@@ -1753,8 +1799,8 @@ function update(dt) {
 
   // --- Popups ---
   for (let i = state.popups.length - 1; i >= 0; i--) {
-    state.popups[i].y  -= 0.8;
-    state.popups[i].life--;
+    state.popups[i].y  -= 0.8 * k;
+    state.popups[i].life -= k;
     if (state.popups[i].life <= 0) state.popups.splice(i, 1);
   }
 
@@ -1783,25 +1829,27 @@ function damagePlayer(pitFall = false) {
   } else {
     if (state.layer === "underground") {
       player.x = 70;
-      player.y = GROUND_Y - PLAYER_H;
       player.vx = 0;
       player.vy = 0;
       player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
-      player.firePower  = false;
-      player.firePowerTimer = 0;
-      player.jumpPower  = false;
-      player.jumpPowerTimer = 0;
+      player.powerStage = 0;
+      player.greenShrink = false;
+      player.w = PLAYER_SMALL_W;
+      player.h = PLAYER_SMALL_H;
+      player.y = GROUND_Y - player.h;
+      player.fireCooldown = 0;
       fireballs         = [];
     } else {
       player.x         = Math.max(80, player.maxX - RESPAWN_SURFACE_BACK_TILES * TILE);
-      player.y         = GROUND_Y - PLAYER_H;
       player.vx        = 0;
       player.vy        = 0;
       player.invincibleUntilMs = performance.now() + RESPAWN_INVINCIBLE_MS;
-      player.firePower  = false;
-      player.firePowerTimer = 0;
-      player.jumpPower  = false;
-      player.jumpPowerTimer = 0;
+      player.powerStage = 0;
+      player.greenShrink = false;
+      player.w = PLAYER_SMALL_W;
+      player.h = PLAYER_SMALL_H;
+      player.y = GROUND_Y - player.h;
+      player.fireCooldown = 0;
       fireballs         = [];
     }
   }
@@ -2670,7 +2718,7 @@ function drawMushroom(m) {
   const sx = m.x - camX;
   if (sx + m.w < 0 || sx > CANVAS_W) return;
   const cy = m.y + m.h * 0.35;
-  ctx.fillStyle = m.type === "jump" ? "#2e7d32" : "#c62828";
+  ctx.fillStyle = m.type === "green" ? "#2e7d32" : "#c62828";
   ctx.beginPath();
   ctx.arc(sx + m.w / 2, cy, m.w * 0.48, Math.PI, 0);
   ctx.fill();
@@ -2684,13 +2732,16 @@ function drawMushroom(m) {
 }
 
 function drawFish(f) {
-  if (!f.alive || f.y >= f.baseY) return;
+  if (!f.alive) return;
   const sx = f.x - camX;
   if (sx < -40 || sx > CANVAS_W + 40) return;
 
+  const drawY = f.squished ? f.baseY - f.h * 0.35 : f.y;
+  if (!f.squished && f.y >= f.baseY) return;
+
   const cx = sx;
-  const cy = f.y + f.h * 0.5;
-  const r  = f.w * 0.46;
+  const cy = drawY + f.h * 0.5;
+  const r  = f.squished ? f.w * 0.46 * 0.55 : f.w * 0.46;
 
   // Pufferfish body
   ctx.fillStyle = "#c8e6c9";
@@ -2859,11 +2910,11 @@ function drawPlayer() {
   ctx.fillRect(ox + 3, player.y + player.h - 16, player.w - 6, 10);
 
   // Body (shirt — white when fire Mario)
-  ctx.fillStyle = player.firePower ? "#fafafa" : "#c62828";
+  ctx.fillStyle = player.powerStage >= 2 ? "#fafafa" : "#c62828";
   ctx.fillRect(ox + 2, player.y + 14, player.w - 4, player.h - 30);
 
   // Arms
-  ctx.fillStyle = player.firePower ? "#fafafa" : "#c62828";
+  ctx.fillStyle = player.powerStage >= 2 ? "#fafafa" : "#c62828";
   ctx.fillRect(ox - 4, player.y + 16, 7, 10);
   ctx.fillRect(ox + player.w - 3, player.y + 16, 7, 10);
 
@@ -2965,17 +3016,13 @@ function drawHUD() {
   ctx.textAlign = "left";
   ctx.fillText(seasonNames[si], 10, 38);
 
-  if (player && player.firePower) {
-    ctx.fillStyle = "#ff6f00";
-    ctx.font = "bold 14px 'Courier New'";
+  if (player && player.powerStage >= 1) {
+    ctx.fillStyle = player.powerStage >= 2 ? "#ff6f00" : "#ffb74d";
+    ctx.font = "bold 13px 'Courier New'";
     ctx.textAlign = "center";
-    ctx.fillText(`FIRE ${Math.max(0, Math.ceil(player.firePowerTimer))}s`, CANVAS_W / 2, 38);
-  }
-  if (player && player.jumpPower) {
-    ctx.fillStyle = "#4caf50";
-    ctx.font = "bold 14px 'Courier New'";
-    ctx.textAlign = "center";
-    ctx.fillText(`JUMP ${Math.max(0, Math.ceil(player.jumpPowerTimer))}s`, CANVAS_W / 2, 38);
+    const tier = player.powerStage >= 2 ? "FIRE" : "SUPER";
+    const mini = player.greenShrink ? " · MINI" : "";
+    ctx.fillText(`${tier}${mini}`, CANVAS_W / 2, 38);
   }
 
   ctx.fillStyle = "#9e9e9e";
@@ -3074,7 +3121,7 @@ function drawStart() {
   ctx.font = "16px 'Courier New'";
   ctx.fillText("Collect coins  +100    Stomp enemies  +200", CANVAS_W / 2, 280);
   ctx.fillText("10 stages · ~20k units · final flag wins  +2500", CANVAS_W / 2, 305);
-  ctx.fillText("? blocks: bump from below  mushroom  A = fire", CANVAS_W / 2, 335);
+  ctx.fillText("? blocks: red mushroom = grow / fire tier   green = mini (same jump)", CANVAS_W / 2, 335);
   ctx.fillStyle = "#bcaaa4";
   ctx.font = "14px 'Courier New'";
   ctx.fillText("Brown pipe: stand on top + S or down to enter underground bonus", CANVAS_W / 2, 358);
@@ -3082,11 +3129,11 @@ function drawStart() {
   ctx.fillStyle = "#a5d6a7";
   ctx.font = "13px 'Courier New'";
   if (isMobile) {
-    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 372);
-    ctx.fillText("Fire needs ? mushroom", CANVAS_W / 2, 392);
+    ctx.fillText("Touch:  [ \u25C0 ] [ \u25B6 ] move    [ Space ] jump    [ A ] fire (2nd red)", CANVAS_W / 2, 372);
+    ctx.fillText("Power resets when you lose a life", CANVAS_W / 2, 392);
   } else {
-    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire", CANVAS_W / 2, 384);
-    ctx.fillText("\u2191 and W also jump · fire after ? mushroom", CANVAS_W / 2, 404);
+    ctx.fillText("[ \u2190 ] [ \u2192 ] move    [ Space ] jump    [ A ] fire after 2nd red mushroom", CANVAS_W / 2, 384);
+    ctx.fillText("\u2191 and W also jump · green = smaller body, jump unchanged", CANVAS_W / 2, 404);
   }
 
   if (Math.floor(Date.now() / 600) % 2 === 0) {
