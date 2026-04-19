@@ -2889,53 +2889,54 @@ function drawEnemy(e) {
 }
 
 /**
- * Classic vector Mario (pre–pixel-sprite style): brown shoes, blue overalls,
- * red shirt & cap, tan face, Yale “Y”. Fire tier: white shirt. Layout is
- * scaled from the original 28×36 reference to current player.w / player.h.
+ * Mario as in commit 6a44ccd: same rectangle layout (eye & mustache on the right
+ * = faces right), scaled uniformly from a 28×36 reference and centered in the
+ * hitbox. Fire tier: white shirt (`powerStage >= 2` replaces `firePower`).
  */
-function drawPlayerClassicVector(ox) {
-  const w = player.w;
-  const h = player.h;
-  const sx = (x) => ox + (x / 28) * w;
-  const sy = (y) => player.y + (y / 36) * h;
-  const rw = (dw) => Math.max(1, (dw / 28) * w);
-  const rh = (dh) => Math.max(1, (dh / 36) * h);
+const MARIO_REF_W = 28;
+const MARIO_REF_H = 36;
+
+function drawPlayerClassic628(ox0, oy0, sc) {
+  const X = (x) => ox0 + x * sc;
+  const Y = (y) => oy0 + y * sc;
+  const W = (w) => Math.max(1, w * sc);
+  const H = (h) => Math.max(1, h * sc);
   const shirt = player.powerStage >= 2 ? "#fafafa" : "#c62828";
 
   ctx.fillStyle = "#3e2723";
-  ctx.fillRect(sx(1), sy(28), rw(10), rh(8));
-  ctx.fillRect(sx(17), sy(28), rw(10), rh(8));
+  ctx.fillRect(X(1), Y(28), W(10), H(8));
+  ctx.fillRect(X(17), Y(28), W(10), H(8));
 
   ctx.fillStyle = "#1565c0";
-  ctx.fillRect(sx(3), sy(20), rw(22), rh(10));
+  ctx.fillRect(X(3), Y(20), W(22), H(10));
 
   ctx.fillStyle = shirt;
-  ctx.fillRect(sx(2), sy(14), rw(24), rh(6));
-  ctx.fillRect(sx(-4), sy(16), rw(7), rh(10));
-  ctx.fillRect(sx(25), sy(16), rw(7), rh(10));
+  ctx.fillRect(X(2), Y(14), W(24), H(6));
+  ctx.fillRect(X(-4), Y(16), W(7), H(10));
+  ctx.fillRect(X(25), Y(16), W(7), H(10));
 
   ctx.fillStyle = "#ffcc80";
-  ctx.fillRect(sx(4), sy(2), rw(20), rh(14));
+  ctx.fillRect(X(4), Y(2), W(20), H(14));
 
   ctx.fillStyle = "#c62828";
-  ctx.fillRect(sx(2), sy(-2), rw(24), rh(6));
-  ctx.fillRect(sx(6), sy(-8), rw(16), rh(8));
+  ctx.fillRect(X(2), Y(-2), W(24), H(6));
+  ctx.fillRect(X(6), Y(-8), W(16), H(8));
 
-  ctx.fillStyle = "#000";
-  ctx.fillRect(sx(18), sy(6), rw(4), rh(4));
-  ctx.fillStyle = "#5d4037";
-  ctx.fillRect(sx(14), sy(12), rw(11), rh(3));
-
-  ctx.font = `bold ${Math.max(6, Math.floor(w * 0.28))}px Arial, sans-serif`;
+  ctx.font = `bold ${Math.max(6, 8 * sc)}px Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const capCx = ox + w / 2;
-  const capCy = sy(-4);
+  const capCx = X(14);
+  const capCy = Y(-4);
   ctx.strokeStyle = "#00356B";
   ctx.lineWidth = 1.25;
   ctx.fillStyle = "#fffef5";
   ctx.strokeText("Y", capCx, capCy);
   ctx.fillText("Y", capCx, capCy);
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(X(18), Y(6), W(4), H(4));
+  ctx.fillStyle = "#5d4037";
+  ctx.fillRect(X(14), Y(12), W(11), H(3));
 }
 
 function drawPlayer() {
@@ -2948,7 +2949,12 @@ function drawPlayer() {
     ctx.scale(-1, 1);
   }
 
-  drawPlayerClassicVector(sx);
+  const sc = Math.min(player.w / MARIO_REF_W, player.h / MARIO_REF_H);
+  const dw = MARIO_REF_W * sc;
+  const dh = MARIO_REF_H * sc;
+  const ox0 = sx + (player.w - dw) * 0.5;
+  const oy0 = player.y + (player.h - dh) * 0.5;
+  drawPlayerClassic628(ox0, oy0, sc);
 
   ctx.restore();
 }
