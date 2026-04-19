@@ -2889,82 +2889,50 @@ function drawEnemy(e) {
 }
 
 /**
- * NES-style “super” Mario drawn as crisp pixels (no bitmap): red cap & overalls,
- * olive shirt & boots (#829131 / #66752d), tan skin & hands (#f7c344).
- * Fire tier uses white shirt (S → white) instead of green.
+ * Classic vector Mario (pre–pixel-sprite style): brown shoes, blue overalls,
+ * red shirt & cap, tan face, Yale “Y”. Fire tier: white shirt. Layout is
+ * scaled from the original 28×36 reference to current player.w / player.h.
  */
-const MARIO_PIXEL_COLS = 12;
-const MARIO_PIXEL_ROWS = 20;
-const MARIO_PIXEL_PATTERN = [
-  "....RRRR....",
-  "...RRRRRR...",
-  "..RRRRRRRR..",
-  ".RRRRRRRRRR.",
-  ".RRYYYDYYRR.",
-  ".RRYYDDYYRR.",
-  "..YYYYYYYY..",
-  "..SSSSSSSS..",
-  ".SSYYSSYYSS.",
-  ".SSYYSSYYSS.",
-  ".RRRRRRRRRR.",
-  ".RRYSYYSYRR.",
-  ".RRRRRRRRRR.",
-  "..SSSSSSSS..",
-  "..RRRRRRRR..",
-  "..RRRRRRRR..",
-  "..BBRRRRBB..",
-  "..BBRRRRBB..",
-  ".BBDDDDDDBB.",
-  "..BB....BB..",
-];
+function drawPlayerClassicVector(ox) {
+  const w = player.w;
+  const h = player.h;
+  const sx = (x) => ox + (x / 28) * w;
+  const sy = (y) => player.y + (y / 36) * h;
+  const rw = (dw) => Math.max(1, (dw / 28) * w);
+  const rh = (dh) => Math.max(1, (dh / 36) * h);
+  const shirt = player.powerStage >= 2 ? "#fafafa" : "#c62828";
 
-function drawPlayerProceduralMario(ox) {
-  const PAL = {
-    R: "#df3e48",
-    Y: "#f7c344",
-    D: "#66752d",
-    G: "#829131",
-    B: "#6d7c38",
-  };
-  const shirt = player.powerStage >= 2 ? "#f2f2f2" : PAL.G;
-  const pw = player.w;
-  const ph = player.h;
-  const cw = pw / MARIO_PIXEL_COLS;
-  const ch = ph / MARIO_PIXEL_ROWS;
-  const prevSmooth = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#3e2723";
+  ctx.fillRect(sx(1), sy(28), rw(10), rh(8));
+  ctx.fillRect(sx(17), sy(28), rw(10), rh(8));
 
-  for (let r = 0; r < MARIO_PIXEL_ROWS; r++) {
-    const row = MARIO_PIXEL_PATTERN[r] || "";
-    for (let c = 0; c < MARIO_PIXEL_COLS; c++) {
-      const chCode = row[c] || ".";
-      if (chCode === "." || chCode === " ") continue;
-      let col;
-      if (chCode === "S") col = shirt;
-      else if (chCode === "B") col = PAL.B;
-      else if (chCode === "R") col = PAL.R;
-      else if (chCode === "Y") col = PAL.Y;
-      else if (chCode === "D") col = PAL.D;
-      else continue;
-      ctx.fillStyle = col;
-      ctx.fillRect(
-        Math.floor(ox + c * cw),
-        Math.floor(player.y + r * ch),
-        Math.ceil(cw),
-        Math.ceil(ch),
-      );
-    }
-  }
+  ctx.fillStyle = "#1565c0";
+  ctx.fillRect(sx(3), sy(20), rw(22), rh(10));
 
-  ctx.imageSmoothingEnabled = prevSmooth;
+  ctx.fillStyle = shirt;
+  ctx.fillRect(sx(2), sy(14), rw(24), rh(6));
+  ctx.fillRect(sx(-4), sy(16), rw(7), rh(10));
+  ctx.fillRect(sx(25), sy(16), rw(7), rh(10));
 
-  ctx.font = `bold ${Math.max(6, Math.floor(pw * 0.26))}px Arial, sans-serif`;
+  ctx.fillStyle = "#ffcc80";
+  ctx.fillRect(sx(4), sy(2), rw(20), rh(14));
+
+  ctx.fillStyle = "#c62828";
+  ctx.fillRect(sx(2), sy(-2), rw(24), rh(6));
+  ctx.fillRect(sx(6), sy(-8), rw(16), rh(8));
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(sx(18), sy(6), rw(4), rh(4));
+  ctx.fillStyle = "#5d4037";
+  ctx.fillRect(sx(14), sy(12), rw(11), rh(3));
+
+  ctx.font = `bold ${Math.max(6, Math.floor(w * 0.28))}px Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const capCx = ox + pw / 2;
-  const capCy = player.y + (2.5 / MARIO_PIXEL_ROWS) * ph;
+  const capCx = ox + w / 2;
+  const capCy = sy(-4);
   ctx.strokeStyle = "#00356B";
-  ctx.lineWidth = 1.1;
+  ctx.lineWidth = 1.25;
   ctx.fillStyle = "#fffef5";
   ctx.strokeText("Y", capCx, capCy);
   ctx.fillText("Y", capCx, capCy);
@@ -2980,7 +2948,7 @@ function drawPlayer() {
     ctx.scale(-1, 1);
   }
 
-  drawPlayerProceduralMario(sx);
+  drawPlayerClassicVector(sx);
 
   ctx.restore();
 }
