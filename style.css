@@ -373,6 +373,19 @@ canvas {
   #controls-box {
     display: none;
   }
+
+  /* Android browsers can misreport pointer/hover, so force on-screen controls on small viewports. */
+  #touch-controls {
+    display: block;
+  }
+
+  #touch-fire {
+    display: flex !important;
+  }
+
+  body {
+    padding-bottom: 140px;
+  }
 }
 
 @media (hover: none) and (pointer: coarse) {
