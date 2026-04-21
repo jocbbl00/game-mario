@@ -1825,12 +1825,23 @@ function update(dt) {
 
   // --- Stage 3 + fire budget: 10s per mushroom collected on stage 2 ---
   if (state.layer === "surface" && player && state.flagsPassed === 2 && player.powerStage >= 2) {
-    stage3FireSpentSec += dt;
     const budgetSec = stage2MushroomsForStage3Fire * STAGE3_FIRE_SEC_PER_STAGE2_MUSHROOM;
-    if (stage3FireSpentSec >= budgetSec) {
-      stage3FireSpentSec = 0;
+    if (budgetSec <= 0) {
+      // No earned fire budget for stage 3: drop to super, never teleport stages.
+      player.powerStage = 1;
       fireballs = [];
-      jumpToTestStage(2, false);
+      stage3FireSpentSec = 0;
+      syncPlayerHitbox(true);
+      addPopup(player.x - camX + player.w / 2, player.y - 8, "FIRE OUT");
+    } else {
+      stage3FireSpentSec += dt;
+      if (stage3FireSpentSec >= budgetSec) {
+        stage3FireSpentSec = 0;
+        player.powerStage = 1;
+        fireballs = [];
+        syncPlayerHitbox(true);
+        addPopup(player.x - camX + player.w / 2, player.y - 8, "FIRE OUT");
+      }
     }
   }
 
