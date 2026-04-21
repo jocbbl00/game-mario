@@ -38,6 +38,8 @@ const RESPAWN_INVINCIBLE_MS = 3000;
 /** How far left of max progress to respawn on death (surface). 5 tiles × TILE = 200px. */
 const RESPAWN_SURFACE_BACK_TILES = 5;
 const SEASON_DURATION_SEC = 10;
+/** On surface stage 3 with fire power, after this many seconds Mario returns to stage 2. */
+const STAGE3_FIRE_RETURN_SEC = 10;
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
 // Score writes go through Edge Functions which hold the secret.
@@ -1119,6 +1121,8 @@ let autoPilotNoMoveAccum = 0;
 let surfaceLevelRef = null;
 let surfaceSave     = null;
 let pipeWarpLockUntil = 0;
+/** Accumulates while on surface stage 3 (`flagsPassed === 2`) with fire (`powerStage >= 2`). */
+let stage3FireTimerSec = 0;
 
 function forceGameOverSubmit() {
   if (state.phase !== "playing") return;
@@ -1168,7 +1172,7 @@ function findFirstGroundTileInSegment(seg) {
   return Math.max(0, Math.floor(xMin / TILE) * TILE);
 }
 
-function jumpToTestStage(stage1to10) {
+function jumpToTestStage(stage1to10, addScoreBonus = true) {
   if (!player || state.phase !== "playing") return;
   const n = Math.floor(stage1to10);
   if (n < 1 || n > NUM_LEVELS) return;
@@ -1195,9 +1199,11 @@ function jumpToTestStage(stage1to10) {
   player.maxX = Math.max(80, player.x);
   camX = Math.max(0, Math.min(seg * LEVEL_SEG_W, WORLD_W - CANVAS_W));
   pipeWarpLockUntil = performance.now() + 500;
-  state.score += 2000;
   addPopup(CANVAS_W / 2, 100, `STAGE ${n}`);
-  addPopup(CANVAS_W / 2, 128, "+2000");
+  if (addScoreBonus) {
+    state.score += 2000;
+    addPopup(CANVAS_W / 2, 128, "+2000");
+  }
 }
 
 function getPlayerJumpVy0() {
@@ -1808,6 +1814,18 @@ function update(dt) {
       state.score += 500;
       addPopup(CANVAS_W / 2, 100, `LEVEL ${state.flagsPassed + 1}`);
     }
+  }
+
+  // --- Stage 3 + fire: after 10s continuous, return to stage 2 (no cheat bonus) ---
+  if (state.layer === "surface" && player && state.flagsPassed === 2 && player.powerStage >= 2) {
+    stage3FireTimerSec += dt;
+    if (stage3FireTimerSec >= STAGE3_FIRE_RETURN_SEC) {
+      stage3FireTimerSec = 0;
+      fireballs = [];
+      jumpToTestStage(2, false);
+    }
+  } else {
+    stage3FireTimerSec = 0;
   }
 
   // --- Camera ---
@@ -2934,6 +2952,13 @@ function drawPlayerClassic628(ox0, oy0, sc) {
   ctx.fillRect(X(-4), Y(16), W(7), H(10));
   ctx.fillRect(X(25), Y(16), W(7), H(10));
 
+  const gloveR = Math.max(0.5, 3 * sc);
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(X(-0.5), Y(21), gloveR, 0, Math.PI * 2);
+  ctx.arc(X(28.5), Y(21), gloveR, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.fillStyle = "#ffcc80";
   ctx.fillRect(X(4), Y(2), W(20), H(14));
 
@@ -3448,6 +3473,7 @@ async function startGame() {
   surfaceLevelRef      = null;
   surfaceSave          = null;
   fireballs            = [];
+  stage3FireTimerSec   = 0;
   autoPilotLastX       = 80;
   autoPilotNoMoveAccum = 0;
   autoPilotRetreatLeft = 0;
