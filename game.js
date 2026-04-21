@@ -38,8 +38,10 @@ const RESPAWN_INVINCIBLE_MS = 3000;
 /** How far left of max progress to respawn on death (surface). 5 tiles × TILE = 200px. */
 const RESPAWN_SURFACE_BACK_TILES = 5;
 const SEASON_DURATION_SEC = 10;
-/** On surface stage 3 with fire power, after this many seconds Mario returns to stage 2. */
-const STAGE3_FIRE_RETURN_SEC = 10;
+/** Stage 3 fire mode budget gained per stage-2 mushroom pickup. */
+const STAGE3_FIRE_SEC_PER_STAGE2_MUSHROOM = 10;
+/** Slight global pace increase across movement/projectiles. */
+const GLOBAL_SPEED_MULT = 1.08;
 // ============================================================
 // SUPABASE  — anon key only used for READ (leaderboard)
 // Score writes go through Edge Functions which hold the secret.
@@ -1121,8 +1123,10 @@ let autoPilotNoMoveAccum = 0;
 let surfaceLevelRef = null;
 let surfaceSave     = null;
 let pipeWarpLockUntil = 0;
-/** Accumulates while on surface stage 3 (`flagsPassed === 2`) with fire (`powerStage >= 2`). */
-let stage3FireTimerSec = 0;
+/** Total spent time while on stage 3 with fire. Budget = stage2MushroomsForStage3Fire * 10s. */
+let stage3FireSpentSec = 0;
+/** Mushrooms collected while on stage 2 surface (`flagsPassed === 1`). */
+let stage2MushroomsForStage3Fire = 0;
 
 function forceGameOverSubmit() {
   if (state.phase !== "playing") return;
@@ -1468,7 +1472,7 @@ function update(dt) {
     return;
   }
 
-  const spMult = getLevelSpeedMult();
+  const spMult = getLevelSpeedMult() * GLOBAL_SPEED_MULT;
   const gMult  = getGravityMult();
   const k = dt * SIM_FPS;
 
@@ -1613,6 +1617,9 @@ function update(dt) {
       continue;
     }
     if (overlap(player.x, player.y, player.w, player.h, m.x, m.y, m.w, m.h)) {
+      if (state.layer === "surface" && state.flagsPassed === 1) {
+        stage2MushroomsForStage3Fire++;
+      }
       if (m.type === "power") {
         if (player.powerStage < 2) {
           player.powerStage++;
@@ -1816,16 +1823,15 @@ function update(dt) {
     }
   }
 
-  // --- Stage 3 + fire: after 10s continuous, return to stage 2 (no cheat bonus) ---
+  // --- Stage 3 + fire budget: 10s per mushroom collected on stage 2 ---
   if (state.layer === "surface" && player && state.flagsPassed === 2 && player.powerStage >= 2) {
-    stage3FireTimerSec += dt;
-    if (stage3FireTimerSec >= STAGE3_FIRE_RETURN_SEC) {
-      stage3FireTimerSec = 0;
+    stage3FireSpentSec += dt;
+    const budgetSec = stage2MushroomsForStage3Fire * STAGE3_FIRE_SEC_PER_STAGE2_MUSHROOM;
+    if (stage3FireSpentSec >= budgetSec) {
+      stage3FireSpentSec = 0;
       fireballs = [];
       jumpToTestStage(2, false);
     }
-  } else {
-    stage3FireTimerSec = 0;
   }
 
   // --- Camera ---
@@ -3473,7 +3479,8 @@ async function startGame() {
   surfaceLevelRef      = null;
   surfaceSave          = null;
   fireballs            = [];
-  stage3FireTimerSec   = 0;
+  stage3FireSpentSec   = 0;
+  stage2MushroomsForStage3Fire = 0;
   autoPilotLastX       = 80;
   autoPilotNoMoveAccum = 0;
   autoPilotRetreatLeft = 0;
